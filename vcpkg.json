@@ -1,0 +1,12 @@
+{
+  "name": "3dgs-opengl",
+  "version-string": "1.0.0",
+  "dependencies": [
+    "glfw3",
+    "assimp",
+    "cgal",
+    "boost",
+    "opencv"
+  ],
+  "builtin-baseline": "c59b04f668d20c7dd83f478835e8266a3cc51270"
+}
