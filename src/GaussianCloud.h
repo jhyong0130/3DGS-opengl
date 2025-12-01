@@ -160,7 +160,7 @@ public:
 
 private:
     Shader pointShader = GLShaderLoader::load("point.vs", "point.fs");
-    Shader quadShader = GLShaderLoader::load("quadNeuS.vs", "quadNeuS.fs");
+    Shader quadShader = GLShaderLoader::load("quad.vs", "quad.fs");
     Shader quad_interlock_Shader = GLShaderLoader::load("quad_interlock.vs", "quad_interlock.fs");
     Shader testVisibilityShader = GLShaderLoader::load("testVisibility.cp");
     Shader computeBoundingBoxesShader = GLShaderLoader::load("computeBoundingBoxes.cp");

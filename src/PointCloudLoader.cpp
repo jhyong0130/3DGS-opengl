@@ -519,7 +519,7 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
     std::vector<glm::vec4> temp_positions;
     std::vector<glm::vec3> temp_colors;
     std::vector<glm::vec3> depth_cam_points;
-    std::vector<glm::vec4> temp_normals;
+    //std::vector<glm::vec4> temp_normals;
 
     for (int i = 0; i < h_d; i++) {
         for (int j = 0; j < w_d; j++) {
@@ -561,27 +561,27 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
 
             // Transform to world coordinates using rotation and translation
             //glm::vec3 pos_world3 = glm::transpose(rgbToWorldR) * (point_rgb - rgbToWorldT) ;
-            glm::vec3 pos_world3 = glm::transpose(rgbToWorldR) * point_rgb + rgbToWorldT;
+            glm::vec3 pos_world3 = rgbToWorldR * point_rgb + rgbToWorldT;
             glm::vec4 pos_world_h = glm::vec4(pos_world3, 1.0f);
 
-			// Compute normals
-            glm::vec3 normal_cam = computeDepthNormal(
-                depth_image, j, i,
-                FX_DEPTH, FY_DEPTH,
-                CX_DEPTH, CY_DEPTH
-            );
+			//// Compute normals
+   //         glm::vec3 normal_cam = computeDepthNormal(
+   //             depth_image, j, i,
+   //             FX_DEPTH, FY_DEPTH,
+   //             CX_DEPTH, CY_DEPTH
+   //         );
 
-            if (normal_cam == glm::vec3(0)) continue; // skip invalid normals
+   //         if (normal_cam == glm::vec3(0)) continue; // skip invalid normals
 
-            glm::vec3 normal_world = convertNormalToWorld(
-                normal_cam,
-                R,                // depth ¨ RGB rotation
-                rgbToWorldR       // RGB ¨ world rotation
-            );
-			glm::vec4 normal_world_h = glm::vec4(normal_world, 0.0f);
+   //         glm::vec3 normal_world = convertNormalToWorld(
+   //             normal_cam,
+   //             R,                // depth ¨ RGB rotation
+   //             rgbToWorldR       // RGB ¨ world rotation
+   //         );
+			//glm::vec4 normal_world_h = glm::vec4(normal_world, 0.0f);
 
             temp_positions.push_back(pos_world_h);
-            temp_normals.push_back(normal_world_h);
+            /*temp_normals.push_back(normal_world_h);*/
             temp_colors.push_back(glm::vec3(color[2] / 255.0f, color[1] / 255.0f, color[0] / 255.0f));
 			depth_cam_points.push_back(point_depth); // Store depth camera points for covariance calculation
         }
@@ -596,27 +596,27 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
 
     std::cout << "Generated " << dst.num_gaussians << " points from RGBD images" << std::endl;
 
-    dst.scales_cpu = std::vector<glm::vec4>(dst.num_gaussians);
-    for (int i = 0; i < dst.num_gaussians; i++) {
-        dst.scales_cpu[i] = glm::vec4(0.05f);// exp(glm::vec4(1.0f)); // apply exponential activation
-        dst.scales_cpu[i].w = 0.0f;
-    }
-    dst.scales.storeData(dst.scales_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    //dst.scales_cpu = std::vector<glm::vec4>(dst.num_gaussians);
+    //for (int i = 0; i < dst.num_gaussians; i++) {
+    //    dst.scales_cpu[i] = glm::vec4(0.05f);// exp(glm::vec4(1.0f)); // apply exponential activation
+    //    dst.scales_cpu[i].w = 0.0f;
+    //}
+    //dst.scales.storeData(dst.scales_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
 
-    dst.rotations_cpu = std::vector<glm::vec4>(dst.num_gaussians);
-    for (int i = 0; i < dst.num_gaussians; i++) {
-        dst.rotations_cpu[i] = glm::vec4(0.0f); // apply exponential activation
-        dst.rotations_cpu[i].w = 1.0f;
-    }
-    dst.rotations.storeData(dst.rotations_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    //dst.rotations_cpu = std::vector<glm::vec4>(dst.num_gaussians);
+    //for (int i = 0; i < dst.num_gaussians; i++) {
+    //    dst.rotations_cpu[i] = glm::vec4(0.0f); // apply exponential activation
+    //    dst.rotations_cpu[i].w = 1.0f;
+    //}
+    //dst.rotations.storeData(dst.rotations_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
 
     // Store positions
     dst.positions_cpu = temp_positions;
     dst.positions.storeData(dst.positions_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
 
 	// Store normals
-	dst.normals_cpu = temp_normals;
-	dst.normals.storeData(dst.normals_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+	//dst.normals_cpu = temp_normals;
+	//dst.normals.storeData(dst.normals_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
 
     // Initialize opacities to 1.0 for valid points
     dst.opacities_cpu = std::vector<float>(dst.num_gaussians, 1.0f);
@@ -822,122 +822,122 @@ void PointCloudLoader::merge(GaussianCloud& dst,
         return out;
         };
 
-    // Normals
-    dst.normals_cpu.clear();
-    dst.normals_cpu.reserve(dst.num_gaussians);
-    if (hasA && !a.normals_cpu.empty()) {
-        dst.normals_cpu.insert(dst.normals_cpu.end(), a.normals_cpu.begin(), a.normals_cpu.end());
-    }
-    else if (hasA && a.initialized) {
-        auto nA_cpu = readVec4FromGLBuffer(a.normals, nA);
-        if (!nA_cpu.empty()) dst.normals_cpu.insert(dst.normals_cpu.end(), nA_cpu.begin(), nA_cpu.end());
-    }
-    if (hasB && !b.normals_cpu.empty()) {
-        dst.normals_cpu.insert(dst.normals_cpu.end(), b.normals_cpu.begin(), b.normals_cpu.end());
-    }
-    else if (hasB && b.initialized) {
-        auto nB_cpu = readVec4FromGLBuffer(b.normals, nB);
-        if (!nB_cpu.empty()) dst.normals_cpu.insert(dst.normals_cpu.end(), nB_cpu.begin(), nB_cpu.end());
-    }
-    // Fill missing normals with (0,0,1,0)
-    if ((int)dst.normals_cpu.size() != dst.num_gaussians) {
-        int missing = dst.num_gaussians - (int)dst.normals_cpu.size();
-        for (int i = 0; i < missing; ++i) dst.normals_cpu.push_back(glm::vec4(0.0f, 0.0f, 1.0f, 0.0f));
-    }
-    dst.normals.storeData(dst.normals_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    //// Normals
+    //dst.normals_cpu.clear();
+    //dst.normals_cpu.reserve(dst.num_gaussians);
+    //if (hasA && !a.normals_cpu.empty()) {
+    //    dst.normals_cpu.insert(dst.normals_cpu.end(), a.normals_cpu.begin(), a.normals_cpu.end());
+    //}
+    //else if (hasA && a.initialized) {
+    //    auto nA_cpu = readVec4FromGLBuffer(a.normals, nA);
+    //    if (!nA_cpu.empty()) dst.normals_cpu.insert(dst.normals_cpu.end(), nA_cpu.begin(), nA_cpu.end());
+    //}
+    //if (hasB && !b.normals_cpu.empty()) {
+    //    dst.normals_cpu.insert(dst.normals_cpu.end(), b.normals_cpu.begin(), b.normals_cpu.end());
+    //}
+    //else if (hasB && b.initialized) {
+    //    auto nB_cpu = readVec4FromGLBuffer(b.normals, nB);
+    //    if (!nB_cpu.empty()) dst.normals_cpu.insert(dst.normals_cpu.end(), nB_cpu.begin(), nB_cpu.end());
+    //}
+    //// Fill missing normals with (0,0,1,0)
+    //if ((int)dst.normals_cpu.size() != dst.num_gaussians) {
+    //    int missing = dst.num_gaussians - (int)dst.normals_cpu.size();
+    //    for (int i = 0; i < missing; ++i) dst.normals_cpu.push_back(glm::vec4(0.0f, 0.0f, 1.0f, 0.0f));
+    //}
+    //dst.normals.storeData(dst.normals_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
 
     // Rotations (quaternions)
-    dst.rotations_cpu.clear();
-    dst.rotations_cpu.reserve(dst.num_gaussians);
-    if (hasA && !a.rotations_cpu.empty()) {
-        dst.rotations_cpu.insert(dst.rotations_cpu.end(), a.rotations_cpu.begin(), a.rotations_cpu.end());
-    }
-    else if (hasA && a.initialized) {
-        auto rA_cpu = readVec4FromGLBuffer(a.rotations, nA);
-        if (!rA_cpu.empty()) dst.rotations_cpu.insert(dst.rotations_cpu.end(), rA_cpu.begin(), rA_cpu.end());
-    }
-    if (hasB && !b.rotations_cpu.empty()) {
-        dst.rotations_cpu.insert(dst.rotations_cpu.end(), b.rotations_cpu.begin(), b.rotations_cpu.end());
-    }
-    else if (hasB && b.initialized) {
-        auto rB_cpu = readVec4FromGLBuffer(b.rotations, nB);
-        if (!rB_cpu.empty()) dst.rotations_cpu.insert(dst.rotations_cpu.end(), rB_cpu.begin(), rB_cpu.end());
-    }
-    if ((int)dst.rotations_cpu.size() != dst.num_gaussians) {
-        // default to identity quaternion (0,0,0,1)
-        int missing = dst.num_gaussians - (int)dst.rotations_cpu.size();
-        for (int i = 0; i < missing; ++i) dst.rotations_cpu.push_back(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-    }
-    dst.rotations.storeData(dst.rotations_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    //dst.rotations_cpu.clear();
+    //dst.rotations_cpu.reserve(dst.num_gaussians);
+    //if (hasA && !a.rotations_cpu.empty()) {
+    //    dst.rotations_cpu.insert(dst.rotations_cpu.end(), a.rotations_cpu.begin(), a.rotations_cpu.end());
+    //}
+    //else if (hasA && a.initialized) {
+    //    auto rA_cpu = readVec4FromGLBuffer(a.rotations, nA);
+    //    if (!rA_cpu.empty()) dst.rotations_cpu.insert(dst.rotations_cpu.end(), rA_cpu.begin(), rA_cpu.end());
+    //}
+    //if (hasB && !b.rotations_cpu.empty()) {
+    //    dst.rotations_cpu.insert(dst.rotations_cpu.end(), b.rotations_cpu.begin(), b.rotations_cpu.end());
+    //}
+    //else if (hasB && b.initialized) {
+    //    auto rB_cpu = readVec4FromGLBuffer(b.rotations, nB);
+    //    if (!rB_cpu.empty()) dst.rotations_cpu.insert(dst.rotations_cpu.end(), rB_cpu.begin(), rB_cpu.end());
+    //}
+    //if ((int)dst.rotations_cpu.size() != dst.num_gaussians) {
+    //    // default to identity quaternion (0,0,0,1)
+    //    int missing = dst.num_gaussians - (int)dst.rotations_cpu.size();
+    //    for (int i = 0; i < missing; ++i) dst.rotations_cpu.push_back(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+    //}
+    //dst.rotations.storeData(dst.rotations_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
 
-    // Scales
-    dst.scales_cpu.clear();
-    dst.scales_cpu.reserve(dst.num_gaussians);
-    if (hasA && !a.scales_cpu.empty()) {
-        dst.scales_cpu.insert(dst.scales_cpu.end(), a.scales_cpu.begin(), a.scales_cpu.end());
-    }
-    else if (hasA && a.initialized) {
-        auto sA_cpu = readVec4FromGLBuffer(a.scales, nA);
-        if (!sA_cpu.empty()) dst.scales_cpu.insert(dst.scales_cpu.end(), sA_cpu.begin(), sA_cpu.end());
-    }
-    if (hasB && !b.scales_cpu.empty()) {
-        dst.scales_cpu.insert(dst.scales_cpu.end(), b.scales_cpu.begin(), b.scales_cpu.end());
-    }
-    else if (hasB && b.initialized) {
-        auto sB_cpu = readVec4FromGLBuffer(b.scales, nB);
-        if (!sB_cpu.empty()) dst.scales_cpu.insert(dst.scales_cpu.end(), sB_cpu.begin(), sB_cpu.end());
-    }
-    if ((int)dst.scales_cpu.size() != dst.num_gaussians) {
-        int missing = dst.num_gaussians - (int)dst.scales_cpu.size();
-        for (int i = 0; i < missing; ++i) dst.scales_cpu.push_back(glm::vec4(1.0f, 1.0f, 1.0f, 0.0f));
-    }
-    dst.scales.storeData(dst.scales_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    //// Scales
+    //dst.scales_cpu.clear();
+    //dst.scales_cpu.reserve(dst.num_gaussians);
+    //if (hasA && !a.scales_cpu.empty()) {
+    //    dst.scales_cpu.insert(dst.scales_cpu.end(), a.scales_cpu.begin(), a.scales_cpu.end());
+    //}
+    //else if (hasA && a.initialized) {
+    //    auto sA_cpu = readVec4FromGLBuffer(a.scales, nA);
+    //    if (!sA_cpu.empty()) dst.scales_cpu.insert(dst.scales_cpu.end(), sA_cpu.begin(), sA_cpu.end());
+    //}
+    //if (hasB && !b.scales_cpu.empty()) {
+    //    dst.scales_cpu.insert(dst.scales_cpu.end(), b.scales_cpu.begin(), b.scales_cpu.end());
+    //}
+    //else if (hasB && b.initialized) {
+    //    auto sB_cpu = readVec4FromGLBuffer(b.scales, nB);
+    //    if (!sB_cpu.empty()) dst.scales_cpu.insert(dst.scales_cpu.end(), sB_cpu.begin(), sB_cpu.end());
+    //}
+    //if ((int)dst.scales_cpu.size() != dst.num_gaussians) {
+    //    int missing = dst.num_gaussians - (int)dst.scales_cpu.size();
+    //    for (int i = 0; i < missing; ++i) dst.scales_cpu.push_back(glm::vec4(1.0f, 1.0f, 1.0f, 0.0f));
+    //}
+    //dst.scales.storeData(dst.scales_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
 
-    if (hasA || hasB) {
-        dst.covX_cpu.clear(); dst.covY_cpu.clear(); dst.covZ_cpu.clear();
-        dst.covX_cpu.reserve(dst.num_gaussians);
-        dst.covY_cpu.reserve(dst.num_gaussians);
-        dst.covZ_cpu.reserve(dst.num_gaussians);
+    //if (hasA || hasB) {
+    //    dst.covX_cpu.clear(); dst.covY_cpu.clear(); dst.covZ_cpu.clear();
+    //    dst.covX_cpu.reserve(dst.num_gaussians);
+    //    dst.covY_cpu.reserve(dst.num_gaussians);
+    //    dst.covZ_cpu.reserve(dst.num_gaussians);
 
-        if (hasA) {
-            if (!a.covX_cpu.empty()) dst.covX_cpu.insert(dst.covX_cpu.end(), a.covX_cpu.begin(), a.covX_cpu.end());
-            if (!a.covY_cpu.empty()) dst.covY_cpu.insert(dst.covY_cpu.end(), a.covY_cpu.begin(), a.covY_cpu.end());
-            if (!a.covZ_cpu.empty()) dst.covZ_cpu.insert(dst.covZ_cpu.end(), a.covZ_cpu.begin(), a.covZ_cpu.end());
-        }
-        if (hasB) {
-            if (!b.covX_cpu.empty()) dst.covX_cpu.insert(dst.covX_cpu.end(), b.covX_cpu.begin(), b.covX_cpu.end());
-            if (!b.covY_cpu.empty()) dst.covY_cpu.insert(dst.covY_cpu.end(), b.covY_cpu.begin(), b.covY_cpu.end());
-            if (!b.covZ_cpu.empty()) dst.covZ_cpu.insert(dst.covZ_cpu.end(), b.covZ_cpu.begin(), b.covZ_cpu.end());
-        }
+    //    if (hasA) {
+    //        if (!a.covX_cpu.empty()) dst.covX_cpu.insert(dst.covX_cpu.end(), a.covX_cpu.begin(), a.covX_cpu.end());
+    //        if (!a.covY_cpu.empty()) dst.covY_cpu.insert(dst.covY_cpu.end(), a.covY_cpu.begin(), a.covY_cpu.end());
+    //        if (!a.covZ_cpu.empty()) dst.covZ_cpu.insert(dst.covZ_cpu.end(), a.covZ_cpu.begin(), a.covZ_cpu.end());
+    //    }
+    //    if (hasB) {
+    //        if (!b.covX_cpu.empty()) dst.covX_cpu.insert(dst.covX_cpu.end(), b.covX_cpu.begin(), b.covX_cpu.end());
+    //        if (!b.covY_cpu.empty()) dst.covY_cpu.insert(dst.covY_cpu.end(), b.covY_cpu.begin(), b.covY_cpu.end());
+    //        if (!b.covZ_cpu.empty()) dst.covZ_cpu.insert(dst.covZ_cpu.end(), b.covZ_cpu.begin(), b.covZ_cpu.end());
+    //    }
 
-        // Correct fallback per row
-        auto ensureCovSize = [&](std::vector<glm::vec4>& v, int row) {
-            if ((int)v.size() != dst.num_gaussians) {
-                int missing = dst.num_gaussians - (int)v.size();
-                for (int i = 0; i < missing; i++) {
-                    if (row == 0) v.push_back(glm::vec4(0.01f, 0.0f, 0.0f, 0.0f));
-                    else if (row == 1) v.push_back(glm::vec4(0.0f, 0.01f, 0.0f, 0.0f));
-                    else v.push_back(glm::vec4(0.0f, 0.0f, 0.01f, 0.0f));
-                }
-            }
-            };
-        ensureCovSize(dst.covX_cpu, 0);
-        ensureCovSize(dst.covY_cpu, 1);
-        ensureCovSize(dst.covZ_cpu, 2);
+    //    // Correct fallback per row
+    //    auto ensureCovSize = [&](std::vector<glm::vec4>& v, int row) {
+    //        if ((int)v.size() != dst.num_gaussians) {
+    //            int missing = dst.num_gaussians - (int)v.size();
+    //            for (int i = 0; i < missing; i++) {
+    //                if (row == 0) v.push_back(glm::vec4(0.01f, 0.0f, 0.0f, 0.0f));
+    //                else if (row == 1) v.push_back(glm::vec4(0.0f, 0.01f, 0.0f, 0.0f));
+    //                else v.push_back(glm::vec4(0.0f, 0.0f, 0.01f, 0.0f));
+    //            }
+    //        }
+    //        };
+    //    ensureCovSize(dst.covX_cpu, 0);
+    //    ensureCovSize(dst.covY_cpu, 1);
+    //    ensureCovSize(dst.covZ_cpu, 2);
 
-        for (int row = 0; row < 3; row++) {
-            float* cov = new float[dst.num_gaussians * 4];
-            for (int k = 0; k < dst.num_gaussians; k++) {
-                const glm::vec4& src = (row == 0 ? dst.covX_cpu[k] : (row == 1 ? dst.covY_cpu[k] : dst.covZ_cpu[k]));
-                cov[k * 4 + 0] = src.x;
-                cov[k * 4 + 1] = src.y;
-                cov[k * 4 + 2] = src.z;
-                cov[k * 4 + 3] = 0.0f;
-            }
-            dst.covariance[row].storeData(cov, dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
-            delete[] cov;
-        }
-    }
+    //    for (int row = 0; row < 3; row++) {
+    //        float* cov = new float[dst.num_gaussians * 4];
+    //        for (int k = 0; k < dst.num_gaussians; k++) {
+    //            const glm::vec4& src = (row == 0 ? dst.covX_cpu[k] : (row == 1 ? dst.covY_cpu[k] : dst.covZ_cpu[k]));
+    //            cov[k * 4 + 0] = src.x;
+    //            cov[k * 4 + 1] = src.y;
+    //            cov[k * 4 + 2] = src.z;
+    //            cov[k * 4 + 3] = 0.0f;
+    //        }
+    //        dst.covariance[row].storeData(cov, dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    //        delete[] cov;
+    //    }
+    //}
 
     // Derived buffers for rendering pipeline
     dst.visible_gaussians_counter.storeData(nullptr, 1, sizeof(int), 0, useCudaGLInterop, false, true);
@@ -946,10 +946,10 @@ void PointCloudLoader::merge(GaussianCloud& dst,
     dst.sorted_depths.storeData(nullptr, dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, true, true);
     dst.sorted_gaussian_indices.storeData(nullptr, dst.num_gaussians, sizeof(int), 0, useCudaGLInterop, true, true);
 
-    dst.scales_cpu.assign(dst.num_gaussians, glm::vec4(1.0f, 1.0f, 1.0f, 0.0f));
-    dst.scales.storeData(dst.scales_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
-    dst.rotations_cpu.assign(dst.num_gaussians, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-    dst.rotations.storeData(dst.rotations_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    //dst.scales_cpu.assign(dst.num_gaussians, glm::vec4(1.0f, 1.0f, 1.0f, 0.0f));
+    //dst.scales.storeData(dst.scales_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    //dst.rotations_cpu.assign(dst.num_gaussians, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+    //dst.rotations.storeData(dst.rotations_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
     dst.bounding_boxes.storeData(nullptr, dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, true, true);
     dst.conic_opacity.storeData(nullptr, dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, true, true);
     dst.eigen_vecs.storeData(nullptr, dst.num_gaussians, 2 * sizeof(float), 0, useCudaGLInterop, true, true);

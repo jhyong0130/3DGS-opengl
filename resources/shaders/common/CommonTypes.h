@@ -12,15 +12,15 @@ struct Uniforms{
     mat4 projMat;
 
     vec4 camera_pos;
-    mat3 K;
-    mat3 R;
-    vec3 T;
+    //mat3 K;
+    //mat3 R;
+    //vec3 T;
 
     int num_gaussians;
     float near_plane;
     float far_plane;
     float scale_modifier;
-    float scale_neus;
+    //float scale_neus;
     float SDF_scale;
 
     int selected_gaussian;
@@ -38,8 +38,8 @@ struct Uniforms{
     vec4* restrict covX;
     vec4* restrict covY;
     vec4* restrict covZ;
-    vec4* restrict rotations;
-    vec4* restrict scales;
+    //vec4* restrict rotations;
+    //vec4* restrict scales;
     float* restrict sdf;
     float* restrict sh_coeffs_red;
     float* restrict sh_coeffs_green;

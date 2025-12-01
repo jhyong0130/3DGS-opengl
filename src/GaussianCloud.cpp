@@ -41,25 +41,6 @@ static void checkGLResetAndError(const char* tag) {
     }
 }
 
-static void debugPrintUniformPointers(const Uniforms & u) {
-    auto printPtr = [](const char* name, uintptr_t p) {
-        std::cerr << name << " = 0x" << std::hex << p << std::dec << std::endl;
-        };
-    printPtr("positions ptr", reinterpret_cast<uintptr_t>(u.positions));
-    printPtr("covX ptr", reinterpret_cast<uintptr_t>(u.covX));
-    printPtr("covY ptr", reinterpret_cast<uintptr_t>(u.covY));
-    printPtr("covZ ptr", reinterpret_cast<uintptr_t>(u.covZ));
-    printPtr("rotations ptr", reinterpret_cast<uintptr_t>(u.rotations));
-    printPtr("scales ptr", reinterpret_cast<uintptr_t>(u.scales));
-    printPtr("sdf ptr", reinterpret_cast<uintptr_t>(u.sdf));
-    printPtr("sh_red ptr", reinterpret_cast<uintptr_t>(u.sh_coeffs_red));
-    printPtr("visible_gaussians_counter ptr", reinterpret_cast<uintptr_t>(u.visible_gaussians_counter));
-    std::cerr << "num_gaussians = " << u.num_gaussians << " width=" << u.width << " height=" << u.height << std::endl;
-    std::cerr << "sizeof(Uniforms)=" << sizeof(Uniforms)
-        << " sizeof(glm::mat3)=" << sizeof(glm::mat3)
-        << " sizeof(glm::vec3)=" << sizeof(glm::vec3) << std::endl;
-}
-
 void Print(Uniforms uniforms) {
     std::cout << "scale modifier: " << uniforms.scale_modifier << std::endl;
     std::cout << "size: " << uniforms.width << ", " << uniforms.width << std::endl;
@@ -158,35 +139,35 @@ void GaussianCloud::prepareRender(Camera &camera, bool GT) {
     visible_gaussians_counter.storeData(&zero, 1, sizeof(int), 0, false, false, true);
     
 	// compute camera parameters
-    glm::mat3 R = glm::mat3(camera.getViewMatrix());
-    glm::vec3 T = glm::vec3(camera.getViewMatrix()[3]);
+    //glm::mat3 R = glm::mat3(camera.getViewMatrix());
+    //glm::vec3 T = glm::vec3(camera.getViewMatrix()[3]);
 
     float a = camera.getProjectionMatrix()[0][0];
     float b = camera.getProjectionMatrix()[1][1];
 
     glViewport(0, 0, width, height);
 
-    glm::mat3 K = glm::transpose(glm::mat3(
-        a * width / 2.0f, 0, width / 2.0f,
-        0, b * height / 2.0f, height / 2.0f,
-        0, 0, 1.0f));
+    //glm::mat3 K = glm::transpose(glm::mat3(
+    //    a * width / 2.0f, 0, width / 2.0f,
+    //    0, b * height / 2.0f, height / 2.0f,
+    //    0, 0, 1.0f));
 
-    glm::mat3 R_GL_TO_CV = glm::mat3(
-        1, 0, 0,
-        0, -1, 0,
-        0, 0, -1);
+    //glm::mat3 R_GL_TO_CV = glm::mat3(
+    //    1, 0, 0,
+    //    0, -1, 0,
+    //    0, 0, -1);
 
-    R = R_GL_TO_CV * R;
-    T = R_GL_TO_CV * T;
+    //R = R_GL_TO_CV * R;
+    //T = R_GL_TO_CV * T;
 
     //const mat4 rot = glm::rotate(mat4(1.0f), radians(180.0f), vec3(1, 0, 0));
 
     Uniforms uniforms_cpu = {};
     uniforms_cpu.viewMat = camera.getViewMatrix();// *rot;
     uniforms_cpu.projMat = camera.getProjectionMatrix();
-	uniforms_cpu.K = K;
-	uniforms_cpu.R = R;
-	uniforms_cpu.T = T;
+	//uniforms_cpu.K = K;
+	//uniforms_cpu.R = R;
+	//uniforms_cpu.T = T;
 
     uniforms_cpu.camera_pos = vec4(camera.getPosition(), 1.0f);
     //std::cout << uniforms_cpu.camera_pos.x << ", " << uniforms_cpu.camera_pos.y << ", " << uniforms_cpu.camera_pos.z << std::endl;
@@ -197,7 +178,7 @@ void GaussianCloud::prepareRender(Camera &camera, bool GT) {
     //std::cout << uniforms_cpu.near_plane << ", " << uniforms_cpu.far_plane << std::endl;
     
     uniforms_cpu.scale_modifier = scale_modifier;
-	uniforms_cpu.scale_neus = scale_neus;
+	//uniforms_cpu.scale_neus = scale_neus;
 
     uniforms_cpu.selected_gaussian = selected_gaussian;
     uniforms_cpu.min_opacity = min_opacity;
@@ -220,8 +201,8 @@ void GaussianCloud::prepareRender(Camera &camera, bool GT) {
     uniforms_cpu.covX = reinterpret_cast<vec4*>(covariance[0].getGLptr());
     uniforms_cpu.covY = reinterpret_cast<vec4*>(covariance[1].getGLptr());
     uniforms_cpu.covZ = reinterpret_cast<vec4*>(covariance[2].getGLptr());
-    uniforms_cpu.rotations = reinterpret_cast<vec4 *>(rotations.getGLptr());
-    uniforms_cpu.scales = reinterpret_cast<vec4 *>(scales.getGLptr());
+   /* uniforms_cpu.rotations = reinterpret_cast<vec4 *>(rotations.getGLptr());
+    uniforms_cpu.scales = reinterpret_cast<vec4 *>(scales.getGLptr());*/
     uniforms_cpu.sdf = reinterpret_cast<float *>(sdf.getGLptr());
     uniforms_cpu.sh_coeffs_red = reinterpret_cast<float *>(sh_coeffs[0].getGLptr());
     uniforms_cpu.sh_coeffs_green = reinterpret_cast<float *>(sh_coeffs[1].getGLptr());
@@ -250,19 +231,6 @@ void GaussianCloud::prepareRender(Camera &camera, bool GT) {
         int tmp;
         std::cin >> tmp;
     }*/
-
-    std::cerr << "[DEBUG] GPU buffer IDs:" << std::endl;
-    std::cerr << " positions.getID() = " << positions.getID() << std::endl;
-    std::cerr << " covariance[0].getID() = " << covariance[0].getID()
-        << " covariance[1].getID() = " << covariance[1].getID()
-        << " covariance[2].getID() = " << covariance[2].getID() << std::endl;
-    std::cerr << " sh_coeffs[0].getID() = " << sh_coeffs[0].getID()
-        << " sh_coeffs[1].getID() = " << sh_coeffs[1].getID()
-        << " sh_coeffs[2].getID() = " << sh_coeffs[2].getID() << std::endl;
-    std::cerr << " visible_gaussians_counter.getID() = " << visible_gaussians_counter.getID() << std::endl;
-
-    debugPrintUniformPointers(uniforms_cpu);
-    checkGLResetAndError("before uniforms.storeData");
 
     uniforms.storeData(&uniforms_cpu, 1, sizeof(Uniforms));
     checkGLResetAndError("after uniforms.storeData");
