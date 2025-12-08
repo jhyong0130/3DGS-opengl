@@ -51,7 +51,7 @@ static bool has_extension(const char *filename, const char *ext) {
 static void calculateDepthCovariance(const std::vector<glm::vec3>& positions,
     float fx_depth, float fy_depth,
     std::vector<glm::mat3>& covariances) {
-    const float pixel_size = 3.5e-06f; // 3.5É m pixel size
+    const float pixel_size = 3.5e-06f; // 3.5 micrometer pixel size
     const float depth_noise_a = 0.0007f;
     const float depth_noise_b = 0.0002f;
     const float scale_factor = 1.0f;
@@ -291,11 +291,11 @@ void PointCloudLoader::load(GaussianCloud& dst, const std::string &path, bool us
     //    dst.scales_cpu[i] = exp(dst.scales_cpu[i]); // apply exponential activation
     //    dst.scales_cpu[i].w = 0.0f;
     //}
-    //dst.scales.storeData(dst.scales_cpu.data(), dst.num_gaussians, 4*sizeof(float), 0, useCudaGLInterop, false, true);
+    //dst.scales.storeData(dst.scales_cpu.data(), dst.num.gaussians, 4*sizeof(float), 0, useCudaGLInterop, false, true);
 
     //dst.rotations_cpu = std::vector<glm::vec4>(dst.num_gaussians);
     //reader.extract_properties(rot_idx, 4, miniply::PLYPropertyType::Float, dst.rotations_cpu.data());
-    //dst.rotations.storeData(dst.rotations_cpu.data(), dst.num_gaussians, 4*sizeof(float), 0, useCudaGLInterop, false, true);
+    //dst.rotations.storeData(dst.rotations_cpu.data(), dst.num.gaussians, 4*sizeof(float), 0, useCudaGLInterop, false, true);
 
     dst.opacities_cpu = std::vector<float>(dst.num_gaussians);
     reader.extract_properties(opacity_idx, 1, miniply::PLYPropertyType::Float, dst.opacities_cpu.data());
@@ -380,7 +380,7 @@ void PointCloudLoader::loadRdm(GaussianCloud& dst, int nb_pts, bool useCudaGLInt
     for (int i = 0; i < dst.num_gaussians; i++) {
         float sdf_val = h_SDF_Sphere(dst.positions_cpu[i], 0.5f); // h_SDF_Torus(dst.positions_cpu[i], 0.6f, 0.4f);
         dst.sdf_cpu[i] = sdf_val;
-        dst.opacities_cpu[i] = sigmoid(exp(-sdf_val * sdf_val/0.01f)); // apply sigmoid activation sdf[i] = h_SDF_Torus(pts[i], 0.6f, 0.4f);
+        dst.opacities_cpu[i] = sigmoid(exp(-sdf_val * sdf_val / 0.01f)); // apply sigmoid activation sdf[i] = h_SDF_Torus(pts[i], 0.6f, 0.4f);
     }
     dst.sdf.storeData(dst.sdf_cpu.data(), dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, false, true);
     dst.opacities.storeData(dst.opacities_cpu.data(), dst.num_gaussians, 1 * sizeof(float), 0, useCudaGLInterop, false, true);
@@ -440,7 +440,7 @@ void PointCloudLoader::loadRdm(GaussianCloud& dst, int nb_pts, bool useCudaGLInt
     cudaMalloc((void**)&dst.d_flags, dst.num_gaussians * sizeof(unsigned char));
     cudaMalloc((void**)&dst.d_adjacencies, (dst.KVal + dst.KVal_d) * dst.num_gaussians * sizeof(uint));
     cudaMalloc((void**)&dst.d_adjacencies_delaunay, dst.KVal_d * dst.num_gaussians * sizeof(uint));
-    
+
     cudaMalloc((void**)&dst.pts_f3, 3 * dst.num_gaussians * sizeof(float));
     cudaMalloc((void**)&dst.morton_codes, dst.num_gaussians * sizeof(uint64_t));
     cudaMalloc((void**)&dst.sorted_indices, dst.num_gaussians * sizeof(uint32_t));
@@ -482,7 +482,7 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
     const glm::mat3& R,
     const glm::vec3& T,
     const glm::mat3& rgbToWorldR,
-	const glm::vec3& rgbToWorldT,
+    const glm::vec3& rgbToWorldT,
     bool useCudaGLInterop
 ) {
     dst.initialized = false;
@@ -564,7 +564,7 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
             glm::vec3 pos_world3 = glm::transpose(rgbToWorldR) * point_rgb + rgbToWorldT;
             glm::vec4 pos_world_h = glm::vec4(pos_world3, 1.0f);
 
-			// Compute normals
+            // Compute normals
             glm::vec3 normal_cam = computeDepthNormal(
                 depth_image, j, i,
                 FX_DEPTH, FY_DEPTH,
@@ -578,12 +578,12 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
                 R,                // depth Å® RGB rotation
                 rgbToWorldR       // RGB Å® world rotation
             );
-			glm::vec4 normal_world_h = glm::vec4(normal_world, 0.0f);
+            glm::vec4 normal_world_h = glm::vec4(normal_world, 0.0f);
 
             temp_positions.push_back(pos_world_h);
             temp_normals.push_back(normal_world_h);
             temp_colors.push_back(glm::vec3(color[2] / 255.0f, color[1] / 255.0f, color[0] / 255.0f));
-			depth_cam_points.push_back(point_depth); // Store depth camera points for covariance calculation
+            depth_cam_points.push_back(point_depth); // Store depth camera points for covariance calculation
         }
     }
 
@@ -596,27 +596,13 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
 
     std::cout << "Generated " << dst.num_gaussians << " points from RGBD images" << std::endl;
 
-    dst.scales_cpu = std::vector<glm::vec4>(dst.num_gaussians);
-    for (int i = 0; i < dst.num_gaussians; i++) {
-        dst.scales_cpu[i] = glm::vec4(0.05f);// exp(glm::vec4(1.0f)); // apply exponential activation
-        dst.scales_cpu[i].w = 0.0f;
-    }
-    dst.scales.storeData(dst.scales_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
-
-    dst.rotations_cpu = std::vector<glm::vec4>(dst.num_gaussians);
-    for (int i = 0; i < dst.num_gaussians; i++) {
-        dst.rotations_cpu[i] = glm::vec4(0.0f); // apply exponential activation
-        dst.rotations_cpu[i].w = 1.0f;
-    }
-    dst.rotations.storeData(dst.rotations_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
-
     // Store positions
     dst.positions_cpu = temp_positions;
     dst.positions.storeData(dst.positions_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
 
-	// Store normals
-	dst.normals_cpu = temp_normals;
-	dst.normals.storeData(dst.normals_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    // Store normals
+    dst.normals_cpu = temp_normals;
+    dst.normals.storeData(dst.normals_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
 
     // Initialize opacities to 1.0 for valid points
     dst.opacities_cpu = std::vector<float>(dst.num_gaussians, 1.0f);
@@ -646,7 +632,7 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
 
     std::cout << "Calculated depth-dependent covariances for " << covariance_matrices.size() << " points" << std::endl;
 
-   // Store covariance matrices
+    // Store covariance matrices
     dst.covX_cpu.resize(dst.num_gaussians);
     dst.covY_cpu.resize(dst.num_gaussians);
     dst.covZ_cpu.resize(dst.num_gaussians);
@@ -727,9 +713,10 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
     std::cout << "Finished loading RGBD point cloud." << std::endl;
 }
 
+
 void PointCloudLoader::merge(GaussianCloud& dst,
     const GaussianCloud& a,
-    const GaussianCloud& b,
+    const GaussianCloud& b, 
     bool useCudaGLInterop)
 {
     // Caller should have called dst.initShaders() once before first merge.
@@ -745,72 +732,33 @@ void PointCloudLoader::merge(GaussianCloud& dst,
 
     const int nA = hasA ? a.num_gaussians : 0;
     const int nB = hasB ? b.num_gaussians : 0;
-    dst.num_gaussians = nA + nB;
-
-    // Positions
-    dst.positions_cpu.clear();
-    dst.positions_cpu.reserve(dst.num_gaussians);
-    if (hasA) dst.positions_cpu.insert(dst.positions_cpu.end(), a.positions_cpu.begin(), a.positions_cpu.end());
-    if (hasB) dst.positions_cpu.insert(dst.positions_cpu.end(), b.positions_cpu.begin(), b.positions_cpu.end());
-    dst.positions.storeData(dst.positions_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
-
-    // Opacities
-    dst.opacities_cpu.clear();
-    dst.opacities_cpu.reserve(dst.num_gaussians);
-    if (hasA) dst.opacities_cpu.insert(dst.opacities_cpu.end(), a.opacities_cpu.begin(), a.opacities_cpu.end());
-    if (hasB) dst.opacities_cpu.insert(dst.opacities_cpu.end(), b.opacities_cpu.begin(), b.opacities_cpu.end());
-    if ((int)dst.opacities_cpu.size() != dst.num_gaussians) {
-        // Fill missing with 1.0f if some source had no CPU copy
-        const int missing = dst.num_gaussians - (int)dst.opacities_cpu.size();
-        dst.opacities_cpu.insert(dst.opacities_cpu.end(), missing, 1.0f);
+    const int total = nA + nB;
+    
+    // Check available GPU memory before proceeding
+    size_t free_mem, total_mem;
+    cudaError_t mem_err = cudaMemGetInfo(&free_mem, &total_mem);
+    if (mem_err != cudaSuccess) {
+        std::cerr << "Failed to query GPU memory: " << cudaGetErrorString(mem_err) << std::endl;
+        dst.initialized = false;
+        return;
     }
-    dst.opacities.storeData(dst.opacities_cpu.data(), dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, false, true);
-
-    // SDF (if missing, zeros)
-    dst.sdf_cpu.clear();
-    if (hasA) {
-        if (!a.sdf_cpu.empty()) dst.sdf_cpu.insert(dst.sdf_cpu.end(), a.sdf_cpu.begin(), a.sdf_cpu.end());
-        else dst.sdf_cpu.insert(dst.sdf_cpu.end(), nA, 0.0f);
+    
+    // Estimate required memory (rough calculation)
+    // Each gaussian needs: position(16B) + opacity(4B) + normals(16B) + covariance(48B) + SH(192B) + misc(~100B) ? 400 bytes
+    size_t estimated_mem = total * 400;
+    
+    std::cout << "Merge: GPU Memory - Free: " << (free_mem / (1024.0*1024.0)) 
+              << " MB, Estimated need: " << (estimated_mem / (1024.0*1024.0)) << " MB" << std::endl;
+    
+    if (free_mem < estimated_mem * 1.5) { // Need 1.5x for safety margin
+        std::cerr << "WARNING: Low GPU memory for merge. Attempting anyway..." << std::endl;
     }
-    if (hasB) {
-        if (!b.sdf_cpu.empty()) dst.sdf_cpu.insert(dst.sdf_cpu.end(), b.sdf_cpu.begin(), b.sdf_cpu.end());
-        else dst.sdf_cpu.insert(dst.sdf_cpu.end(), nB, 0.0f);
-    }
-    dst.sdf.storeData(dst.sdf_cpu.data(), dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, false, true);
+    
+    dst.num_gaussians = total;
 
-    // SH coeffs: 16 floats per channel
-    auto fetchSH = [](const GaussianCloud& g, int ch)->std::vector<float> {
-        if (!g.initialized || g.num_gaussians == 0) return {};
-        return const_cast<GLBuffer&>(g.sh_coeffs[ch]).getAsFloats(16 * g.num_gaussians);
-        };
-    for (int ch = 0; ch < 3; ++ch) {
-        std::vector<float> merged(16 * dst.num_gaussians);
-        size_t offset = 0;
-        if (hasA) {
-            auto sh = fetchSH(a, ch);
-            if (!sh.empty()) {
-                std::memcpy(merged.data() + offset, sh.data(), sh.size() * sizeof(float));
-            }
-            else {
-                // fallback: DC=0.5, others 0
-                for (int i = 0; i < nA; i++) { merged[offset + i * 16 + 0] = 0.5f; for (int l = 1; l < 16; l++) merged[offset + i * 16 + l] = 0.0f; }
-            }
-            offset += 16 * nA;
-        }
-        if (hasB) {
-            auto sh = fetchSH(b, ch);
-            if (!sh.empty()) {
-                std::memcpy(merged.data() + offset, sh.data(), sh.size() * sizeof(float));
-            }
-            else {
-                for (int i = 0; i < nB; i++) { merged[offset + i * 16 + 0] = 0.5f; for (int l = 1; l < 16; l++) merged[offset + i * 16 + l] = 0.0f; }
-            }
-            offset += 16 * nB;
-        }
-        dst.sh_coeffs[ch].storeData(merged.data(), dst.num_gaussians, 16 * sizeof(float), 0, useCudaGLInterop, false, true);
-    }
+    // --- HELPER LAMBDAS ---
 
-    // Merge normals, rotations and scales robustly:
+    // 1. Read vec4 from GPU
     auto readVec4FromGLBuffer = [](const GLBuffer& buf, int count)->std::vector<glm::vec4> {
         if (count == 0) return {};
         auto floats = const_cast<GLBuffer&>(buf).getAsFloats(count * 4);
@@ -822,134 +770,215 @@ void PointCloudLoader::merge(GaussianCloud& dst,
         return out;
         };
 
+    // 2. Read float from GPU
+    auto readFloatFromGLBuffer = [](const GLBuffer& buf, int count)->std::vector<float> {
+        if (count == 0) return {};
+        return const_cast<GLBuffer&>(buf).getAsFloats(count);
+        };
+
+    // 3. Robust Fetcher: Tries CPU first, then GPU, then returns empty
+    auto fetchVec4 = [&](const GaussianCloud& g, const std::vector<glm::vec4>& cpu_vec, const GLBuffer& gpu_buf, int count) {
+        if (!cpu_vec.empty()) return cpu_vec;
+        if (g.initialized && count > 0) return readVec4FromGLBuffer(gpu_buf, count);
+        return std::vector<glm::vec4>();
+        };
+
+    auto fetchFloat = [&](const GaussianCloud& g, const std::vector<float>& cpu_vec, const GLBuffer& gpu_buf, int count) {
+        if (!cpu_vec.empty()) return cpu_vec;
+        if (g.initialized && count > 0) return readFloatFromGLBuffer(gpu_buf, count);
+        return std::vector<float>();
+        };
+
+    // --- STEP 1: SNAPSHOT DATA (Fixes Aliasing Bug) ---
+    // We read all source data into local variables first. 
+    // This allows dst to be one of the inputs (e.g., merge(A, A, B)) without data loss.
+
+    // Positions
+    std::vector<glm::vec4> posA, posB;
+    if (hasA) posA = fetchVec4(a, a.positions_cpu, a.positions, nA);
+    if (hasB) posB = fetchVec4(b, b.positions_cpu, b.positions, nB);
+
+    // Opacities
+    std::vector<float> opacA, opacB;
+    if (hasA) opacA = fetchFloat(a, a.opacities_cpu, a.opacities, nA);
+    if (hasB) opacB = fetchFloat(b, b.opacities_cpu, b.opacities, nB);
+
+    // SDF
+    std::vector<float> sdfA, sdfB;
+    if (hasA) sdfA = fetchFloat(a, a.sdf_cpu, a.sdf, nA);
+    if (hasB) sdfB = fetchFloat(b, b.sdf_cpu, b.sdf, nB);
+
     // Normals
-    dst.normals_cpu.clear();
-    dst.normals_cpu.reserve(dst.num_gaussians);
-    if (hasA && !a.normals_cpu.empty()) {
-        dst.normals_cpu.insert(dst.normals_cpu.end(), a.normals_cpu.begin(), a.normals_cpu.end());
-    }
-    else if (hasA && a.initialized) {
-        auto nA_cpu = readVec4FromGLBuffer(a.normals, nA);
-        if (!nA_cpu.empty()) dst.normals_cpu.insert(dst.normals_cpu.end(), nA_cpu.begin(), nA_cpu.end());
-    }
-    if (hasB && !b.normals_cpu.empty()) {
-        dst.normals_cpu.insert(dst.normals_cpu.end(), b.normals_cpu.begin(), b.normals_cpu.end());
-    }
-    else if (hasB && b.initialized) {
-        auto nB_cpu = readVec4FromGLBuffer(b.normals, nB);
-        if (!nB_cpu.empty()) dst.normals_cpu.insert(dst.normals_cpu.end(), nB_cpu.begin(), nB_cpu.end());
-    }
-    // Fill missing normals with (0,0,1,0)
-    if ((int)dst.normals_cpu.size() != dst.num_gaussians) {
-        int missing = dst.num_gaussians - (int)dst.normals_cpu.size();
-        for (int i = 0; i < missing; ++i) dst.normals_cpu.push_back(glm::vec4(0.0f, 0.0f, 1.0f, 0.0f));
-    }
-    dst.normals.storeData(dst.normals_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    std::vector<glm::vec4> normA, normB;
+    if (hasA) normA = fetchVec4(a, a.normals_cpu, a.normals, nA);
+    if (hasB) normB = fetchVec4(b, b.normals_cpu, b.normals, nB);
 
-    // Rotations (quaternions)
-    dst.rotations_cpu.clear();
-    dst.rotations_cpu.reserve(dst.num_gaussians);
-    if (hasA && !a.rotations_cpu.empty()) {
-        dst.rotations_cpu.insert(dst.rotations_cpu.end(), a.rotations_cpu.begin(), a.rotations_cpu.end());
-    }
-    else if (hasA && a.initialized) {
-        auto rA_cpu = readVec4FromGLBuffer(a.rotations, nA);
-        if (!rA_cpu.empty()) dst.rotations_cpu.insert(dst.rotations_cpu.end(), rA_cpu.begin(), rA_cpu.end());
-    }
-    if (hasB && !b.rotations_cpu.empty()) {
-        dst.rotations_cpu.insert(dst.rotations_cpu.end(), b.rotations_cpu.begin(), b.rotations_cpu.end());
-    }
-    else if (hasB && b.initialized) {
-        auto rB_cpu = readVec4FromGLBuffer(b.rotations, nB);
-        if (!rB_cpu.empty()) dst.rotations_cpu.insert(dst.rotations_cpu.end(), rB_cpu.begin(), rB_cpu.end());
-    }
-    if ((int)dst.rotations_cpu.size() != dst.num_gaussians) {
-        // default to identity quaternion (0,0,0,1)
-        int missing = dst.num_gaussians - (int)dst.rotations_cpu.size();
-        for (int i = 0; i < missing; ++i) dst.rotations_cpu.push_back(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-    }
-    dst.rotations.storeData(dst.rotations_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    // Covariances (X, Y, Z rows)
+    std::vector<glm::vec4> covXA, covYA, covZA;
+    std::vector<glm::vec4> covXB, covYB, covZB;
 
-    // Scales
-    dst.scales_cpu.clear();
-    dst.scales_cpu.reserve(dst.num_gaussians);
-    if (hasA && !a.scales_cpu.empty()) {
-        dst.scales_cpu.insert(dst.scales_cpu.end(), a.scales_cpu.begin(), a.scales_cpu.end());
+    if (hasA) {
+        covXA = fetchVec4(a, a.covX_cpu, a.covariance[0], nA);
+        covYA = fetchVec4(a, a.covY_cpu, a.covariance[1], nA);
+        covZA = fetchVec4(a, a.covZ_cpu, a.covariance[2], nA);
     }
-    else if (hasA && a.initialized) {
-        auto sA_cpu = readVec4FromGLBuffer(a.scales, nA);
-        if (!sA_cpu.empty()) dst.scales_cpu.insert(dst.scales_cpu.end(), sA_cpu.begin(), sA_cpu.end());
+    if (hasB) {
+        covXB = fetchVec4(b, b.covX_cpu, b.covariance[0], nB);
+        covYB = fetchVec4(b, b.covY_cpu, b.covariance[1], nB);
+        covZB = fetchVec4(b, b.covZ_cpu, b.covariance[2], nB);
     }
-    if (hasB && !b.scales_cpu.empty()) {
-        dst.scales_cpu.insert(dst.scales_cpu.end(), b.scales_cpu.begin(), b.scales_cpu.end());
-    }
-    else if (hasB && b.initialized) {
-        auto sB_cpu = readVec4FromGLBuffer(b.scales, nB);
-        if (!sB_cpu.empty()) dst.scales_cpu.insert(dst.scales_cpu.end(), sB_cpu.begin(), sB_cpu.end());
-    }
-    if ((int)dst.scales_cpu.size() != dst.num_gaussians) {
-        int missing = dst.num_gaussians - (int)dst.scales_cpu.size();
-        for (int i = 0; i < missing; ++i) dst.scales_cpu.push_back(glm::vec4(1.0f, 1.0f, 1.0f, 0.0f));
-    }
-    dst.scales.storeData(dst.scales_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
 
-    if (hasA || hasB) {
-        dst.covX_cpu.clear(); dst.covY_cpu.clear(); dst.covZ_cpu.clear();
-        dst.covX_cpu.reserve(dst.num_gaussians);
-        dst.covY_cpu.reserve(dst.num_gaussians);
-        dst.covZ_cpu.reserve(dst.num_gaussians);
+    // SH Coefficients (Special case: always float arrays)
+    // We need 3 channels (R, G, B)
+    std::vector<float> shA[3], shB[3];
+    for (int ch = 0; ch < 3; ch++) {
+        if (hasA) shA[ch] = readFloatFromGLBuffer(a.sh_coeffs[ch], nA * 16);
+        if (hasB) shB[ch] = readFloatFromGLBuffer(b.sh_coeffs[ch], nB * 16);
+    }
 
+    // --- STEP 2: CLEAR AND REBUILD DESTINATION ---
+
+    // 2.1 Positions
+    dst.positions_cpu.clear();
+    dst.positions_cpu.reserve(dst.num_gaussians);
+    if (hasA && !posA.empty()) dst.positions_cpu.insert(dst.positions_cpu.end(), posA.begin(), posA.end());
+    else if (hasA) dst.positions_cpu.insert(dst.positions_cpu.end(), nA, glm::vec4(0.f)); // Fallback safety
+
+    if (hasB && !posB.empty()) dst.positions_cpu.insert(dst.positions_cpu.end(), posB.begin(), posB.end());
+    else if (hasB) dst.positions_cpu.insert(dst.positions_cpu.end(), nB, glm::vec4(0.f)); // Fallback safety
+
+    dst.positions.storeData(dst.positions_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+
+    // 2.2 Opacities
+    dst.opacities_cpu.clear();
+    dst.opacities_cpu.reserve(dst.num_gaussians);
+    if (hasA && !opacA.empty()) dst.opacities_cpu.insert(dst.opacities_cpu.end(), opacA.begin(), opacA.end());
+    else if (hasA) dst.opacities_cpu.insert(dst.opacities_cpu.end(), nA, 1.0f); // Default 1.0
+
+    if (hasB && !opacB.empty()) dst.opacities_cpu.insert(dst.opacities_cpu.end(), opacB.begin(), opacB.end());
+    else if (hasB) dst.opacities_cpu.insert(dst.opacities_cpu.end(), nB, 1.0f); // Default 1.0
+
+    dst.opacities.storeData(dst.opacities_cpu.data(), dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, false, true);
+
+    // 2.3 SDF
+    dst.sdf_cpu.clear();
+    dst.sdf_cpu.reserve(dst.num_gaussians);
+    if (hasA && !sdfA.empty()) dst.sdf_cpu.insert(dst.sdf_cpu.end(), sdfA.begin(), sdfA.end());
+    else if (hasA) dst.sdf_cpu.insert(dst.sdf_cpu.end(), nA, 0.0f);
+
+    if (hasB && !sdfB.empty()) dst.sdf_cpu.insert(dst.sdf_cpu.end(), sdfB.begin(), sdfB.end());
+    else if (hasB) dst.sdf_cpu.insert(dst.sdf_cpu.end(), nB, 0.0f);
+
+    dst.sdf.storeData(dst.sdf_cpu.data(), dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, false, true);
+
+    // 2.4 SH Coeffs
+    for (int ch = 0; ch < 3; ++ch) {
+        std::vector<float> merged(16 * dst.num_gaussians);
+        size_t offset = 0;
+
+        // A
         if (hasA) {
-            if (!a.covX_cpu.empty()) dst.covX_cpu.insert(dst.covX_cpu.end(), a.covX_cpu.begin(), a.covX_cpu.end());
-            if (!a.covY_cpu.empty()) dst.covY_cpu.insert(dst.covY_cpu.end(), a.covY_cpu.begin(), a.covY_cpu.end());
-            if (!a.covZ_cpu.empty()) dst.covZ_cpu.insert(dst.covZ_cpu.end(), a.covZ_cpu.begin(), a.covZ_cpu.end());
-        }
-        if (hasB) {
-            if (!b.covX_cpu.empty()) dst.covX_cpu.insert(dst.covX_cpu.end(), b.covX_cpu.begin(), b.covX_cpu.end());
-            if (!b.covY_cpu.empty()) dst.covY_cpu.insert(dst.covY_cpu.end(), b.covY_cpu.begin(), b.covY_cpu.end());
-            if (!b.covZ_cpu.empty()) dst.covZ_cpu.insert(dst.covZ_cpu.end(), b.covZ_cpu.begin(), b.covZ_cpu.end());
-        }
-
-        // Correct fallback per row
-        auto ensureCovSize = [&](std::vector<glm::vec4>& v, int row) {
-            if ((int)v.size() != dst.num_gaussians) {
-                int missing = dst.num_gaussians - (int)v.size();
-                for (int i = 0; i < missing; i++) {
-                    if (row == 0) v.push_back(glm::vec4(0.01f, 0.0f, 0.0f, 0.0f));
-                    else if (row == 1) v.push_back(glm::vec4(0.0f, 0.01f, 0.0f, 0.0f));
-                    else v.push_back(glm::vec4(0.0f, 0.0f, 0.01f, 0.0f));
+            if (!shA[ch].empty()) {
+                std::memcpy(merged.data() + offset, shA[ch].data(), shA[ch].size() * sizeof(float));
+            }
+            else {
+                // Fallback: DC=0.5, others 0
+                for (int i = 0; i < nA; i++) {
+                    merged[offset + i * 16 + 0] = 0.5f;
+                    for (int l = 1; l < 16; l++) merged[offset + i * 16 + l] = 0.0f;
                 }
             }
-            };
-        ensureCovSize(dst.covX_cpu, 0);
-        ensureCovSize(dst.covY_cpu, 1);
-        ensureCovSize(dst.covZ_cpu, 2);
-
-        for (int row = 0; row < 3; row++) {
-            float* cov = new float[dst.num_gaussians * 4];
-            for (int k = 0; k < dst.num_gaussians; k++) {
-                const glm::vec4& src = (row == 0 ? dst.covX_cpu[k] : (row == 1 ? dst.covY_cpu[k] : dst.covZ_cpu[k]));
-                cov[k * 4 + 0] = src.x;
-                cov[k * 4 + 1] = src.y;
-                cov[k * 4 + 2] = src.z;
-                cov[k * 4 + 3] = 0.0f;
-            }
-            dst.covariance[row].storeData(cov, dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
-            delete[] cov;
+            offset += 16 * nA;
         }
+        // B
+        if (hasB) {
+            if (!shB[ch].empty()) {
+                std::memcpy(merged.data() + offset, shB[ch].data(), shB[ch].size() * sizeof(float));
+            }
+            else {
+                // Fallback
+                for (int i = 0; i < nB; i++) {
+                    merged[offset + i * 16 + 0] = 0.5f;
+                    for (int l = 1; l < 16; l++) merged[offset + i * 16 + l] = 0.0f;
+                }
+            }
+            offset += 16 * nB;
+        }
+        dst.sh_coeffs[ch].storeData(merged.data(), dst.num_gaussians, 16 * sizeof(float), 0, useCudaGLInterop, false, true);
     }
 
-    // Derived buffers for rendering pipeline
+    // 2.5 Normals
+    dst.normals_cpu.clear();
+    dst.normals_cpu.reserve(dst.num_gaussians);
+
+    if (hasA && !normA.empty()) dst.normals_cpu.insert(dst.normals_cpu.end(), normA.begin(), normA.end());
+    else if (hasA) dst.normals_cpu.insert(dst.normals_cpu.end(), nA, glm::vec4(0, 0, 1, 0));
+
+    if (hasB && !normB.empty()) dst.normals_cpu.insert(dst.normals_cpu.end(), normB.begin(), normB.end());
+    else if (hasB) dst.normals_cpu.insert(dst.normals_cpu.end(), nB, glm::vec4(0, 0, 1, 0));
+
+    dst.normals.storeData(dst.normals_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+
+    // 2.6 Covariance
+    dst.covX_cpu.clear(); dst.covY_cpu.clear(); dst.covZ_cpu.clear();
+    dst.covX_cpu.reserve(dst.num_gaussians);
+    dst.covY_cpu.reserve(dst.num_gaussians);
+    dst.covZ_cpu.reserve(dst.num_gaussians);
+
+    // Helper to insert with fallback
+    auto insertCov = [&](std::vector<glm::vec4>& target, const std::vector<glm::vec4>& source, int count) {
+        if (!source.empty()) target.insert(target.end(), source.begin(), source.end());
+        else target.insert(target.end(), count, glm::vec4(0.01f, 0, 0, 0)); // Dummy fallback
+        };
+
+    if (hasA) {
+        insertCov(dst.covX_cpu, covXA, nA);
+        insertCov(dst.covY_cpu, covYA, nA);
+        insertCov(dst.covZ_cpu, covZA, nA);
+    }
+    if (hasB) {
+        insertCov(dst.covX_cpu, covXB, nB);
+        insertCov(dst.covY_cpu, covYB, nB);
+        insertCov(dst.covZ_cpu, covZB, nB);
+    }
+
+    // Ensure size consistency / Last-ditch fallback
+    auto ensureCovSize = [&](std::vector<glm::vec4>& v, int row) {
+        if ((int)v.size() != dst.num_gaussians) {
+            int missing = dst.num_gaussians - (int)v.size();
+            for (int i = 0; i < missing; i++) {
+                if (row == 0) v.push_back(glm::vec4(0.01f, 0.0f, 0.0f, 0.0f));
+                else if (row == 1) v.push_back(glm::vec4(0.0f, 0.01f, 0.0f, 0.0f));
+                else v.push_back(glm::vec4(0.0f, 0.0f, 0.01f, 0.0f));
+            }
+        }
+        };
+    ensureCovSize(dst.covX_cpu, 0);
+    ensureCovSize(dst.covY_cpu, 1);
+    ensureCovSize(dst.covZ_cpu, 2);
+
+    // Upload Covariance to GPU
+    for (int row = 0; row < 3; row++) {
+        float* cov = new float[dst.num_gaussians * 4];
+        for (int k = 0; k < dst.num_gaussians; k++) {
+            const glm::vec4& src = (row == 0 ? dst.covX_cpu[k] : (row == 1 ? dst.covY_cpu[k] : dst.covZ_cpu[k]));
+            cov[k * 4 + 0] = src.x;
+            cov[k * 4 + 1] = src.y;
+            cov[k * 4 + 2] = src.z;
+            cov[k * 4 + 3] = 0.0f;
+        }
+        dst.covariance[row].storeData(cov, dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+        delete[] cov;
+    }
+
+    // --- STEP 3: DERIVED BUFFERS ---
+
     dst.visible_gaussians_counter.storeData(nullptr, 1, sizeof(int), 0, useCudaGLInterop, false, true);
     dst.gaussians_depths.storeData(nullptr, dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, true, true);
     dst.gaussians_indices.storeData(nullptr, dst.num_gaussians, sizeof(int), 0, useCudaGLInterop, true, true);
     dst.sorted_depths.storeData(nullptr, dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, true, true);
     dst.sorted_gaussian_indices.storeData(nullptr, dst.num_gaussians, sizeof(int), 0, useCudaGLInterop, true, true);
 
-    dst.scales_cpu.assign(dst.num_gaussians, glm::vec4(1.0f, 1.0f, 1.0f, 0.0f));
-    dst.scales.storeData(dst.scales_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
-    dst.rotations_cpu.assign(dst.num_gaussians, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-    dst.rotations.storeData(dst.rotations_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
     dst.bounding_boxes.storeData(nullptr, dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, true, true);
     dst.conic_opacity.storeData(nullptr, dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, true, true);
     dst.eigen_vecs.storeData(nullptr, dst.num_gaussians, 2 * sizeof(float), 0, useCudaGLInterop, true, true);

@@ -30,12 +30,12 @@ void main(void){
     const vec2 corner = vec2(x, y);
     
     int Gaussian_ID = uniforms.sorted_gaussian_indices[InstanceID];
-    const vec3 scale = vec3(uniforms.scales[Gaussian_ID]);
+    //const vec3 scale = vec3(uniforms.scales[Gaussian_ID]);
     const float scale_modifier = uniforms.scale_modifier;
 
     // covariance matrix in camera coordinate system
     //cov3D = computeCov3D(uniforms.covX[Gaussian_ID], uniforms.covY[Gaussian_ID], uniforms.covZ[Gaussian_ID], uniforms.rotations[Gaussian_ID], scale, scale_modifier, mat3(uniforms.R));
-    cov3D = computeCov3D(uniforms.covX[Gaussian_ID], uniforms.covY[Gaussian_ID], uniforms.covZ[Gaussian_ID], uniforms.rotations[Gaussian_ID], scale, scale_modifier, mat3(1.0f));
+    cov3D = computeCov3D(uniforms.covX[Gaussian_ID], uniforms.covY[Gaussian_ID], uniforms.covZ[Gaussian_ID], scale_modifier, mat3(1.0f));
 
     // framebuffer size
     const float width = uniforms.width;

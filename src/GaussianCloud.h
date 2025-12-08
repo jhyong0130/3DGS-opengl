@@ -64,8 +64,8 @@ public:
     GLBuffer positions; // x, y, z, padding
     GLBuffer normals;
     GLBuffer covariance[3]; // 3 channel x, y, z, padding
-    GLBuffer scales;    // sx, sy, sz, padding
-    GLBuffer rotations; // rx, ry, rz, rw
+    //GLBuffer scales;    // sx, sy, sz, padding
+    //GLBuffer rotations; // rx, ry, rz, rw
     GLBuffer opacities; // alpha
     GLBuffer sdf; // alpha
     GLBuffer sh_coeffs[3]; // 3 color channels, 16 coeffs each

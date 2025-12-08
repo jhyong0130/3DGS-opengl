@@ -48,34 +48,38 @@ static void myGlDebugCallback(GLenum source,
 
 }
 static void glad_callback_custom(void *ret, const char *name, GLADapiproc apiproc, int len_args, ...) {
-    GLenum error_code;
+    // Guard against NULL function pointer (can be NULL if not loaded or context lost)
+    if (glad_glGetError == NULL) {
+        return;
+    }
 
-    error_code = glad_glGetError();
+    GLenum error_code = glad_glGetError();
+    if (error_code == GL_NO_ERROR) {
+        return;
+    }
 
-    if (error_code != GL_NO_ERROR) {
-        std::string type("UNKNOWN");
-        if (error_code == GL_INVALID_ENUM) {
-            type = "GL_INVALID_ENUM";
-        } else if (error_code == GL_INVALID_OPERATION) {
-            type = "GL_INVALID_OPERATION";
-        } else if (error_code == GL_INVALID_VALUE) {
-            type = "GL_INVALID_VALUE";
-        } else if (error_code == GL_INVALID_INDEX) {
-            type = "GL_INVALID_INDEX";
-        } else if (error_code == GL_INVALID_FRAMEBUFFER_OPERATION) {
-            type = "GL_INVALID_FRAMEBUFFER_OPERATION";
-        } else if (error_code == GL_OUT_OF_MEMORY) {
-            type = "GL_OUT_OF_MEMORY";
-        } else if(error_code == GL_CONTEXT_LOST){
-            type = "GL_CONTEXT_LOST";
-        }
+    std::string type("UNKNOWN");
+    if (error_code == GL_INVALID_ENUM) {
+        type = "GL_INVALID_ENUM";
+    } else if (error_code == GL_INVALID_OPERATION) {
+        type = "GL_INVALID_OPERATION";
+    } else if (error_code == GL_INVALID_VALUE) {
+        type = "GL_INVALID_VALUE";
+    } else if (error_code == GL_INVALID_INDEX) {
+        type = "GL_INVALID_INDEX";
+    } else if (error_code == GL_INVALID_FRAMEBUFFER_OPERATION) {
+        type = "GL_INVALID_FRAMEBUFFER_OPERATION";
+    } else if (error_code == GL_OUT_OF_MEMORY) {
+        type = "GL_OUT_OF_MEMORY";
+    } else if(error_code == GL_CONTEXT_LOST){
+        type = "GL_CONTEXT_LOST";
+    }
 
-        std::cout << "ERROR " << error_code << " in " << name << " (" << type
-                  << ")" << std::endl;
+    std::cout << "ERROR " << error_code << " in " << name << " (" << type
+              << ")" << std::endl;
 
-        if (error_code == GL_OUT_OF_MEMORY) {
-            throw std::string("OpenGL Fatal Error: Out of memory");
-        }
+    if (error_code == GL_OUT_OF_MEMORY) {
+        throw std::string("OpenGL Fatal Error: Out of memory");
     }
 }
 
@@ -122,6 +126,9 @@ Window::Window(const std::string &title, int samples) {
     gladLoadGL(glfwGetProcAddress);
     gladInstallGLDebug();
 
+    glEnable(GL_DEBUG_OUTPUT);
+    glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+
     std::cout << "Version: " << glGetString(GL_VERSION) << std::endl;
     std::cout << "Vendor: " << glGetString(GL_VENDOR) << std::endl;
     std::cout << "Renderer: " << glGetString(GL_RENDERER) << std::endl;
@@ -135,7 +142,10 @@ Window::Window(const std::string &title, int samples) {
     glEnable(GL_MULTISAMPLE);
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 
-    gladSetGLPostCallback(reinterpret_cast<GLADpostcallback>(glad_callback_custom));
+    // Only install the custom post-callback if glGetError is available
+    if (glad_glGetError != NULL) {
+        gladSetGLPostCallback(reinterpret_cast<GLADpostcallback>(glad_callback_custom));
+    }
     glDebugMessageCallback(myGlDebugCallback, nullptr);
 
 //    guis = std::make_unique<GUIs>();
@@ -198,7 +208,7 @@ void loadHeaders(){
     GLShaderLoader::instance->loadHeaders(headers, m, re);
 }
 
-void Window::mainloop(int argc, char **argv) {
+void Window::mainloop(int argc, char** argv) {
 
     Camera camera;
     GLShaderLoader shaderLoader("resources/shaders", "SparseVoxelReconstruction");
@@ -216,19 +226,26 @@ void Window::mainloop(int argc, char **argv) {
     checkCudaErrors(cudaGetDeviceProperties(&props, cuda_device_id));
     printf("CUDA : %-24s (%2d SMs)\n", props.name, props.multiProcessorCount);
 
+    // Check available memory
+    size_t free_mem, total_mem;
+    checkCudaErrors(cudaMemGetInfo(&free_mem, &total_mem));
+    printf("GPU Memory: %.2f MB free / %.2f MB total\n",
+        free_mem / (1024.0f * 1024.0f),
+        total_mem / (1024.0f * 1024.0f));
+
     // Two clouds to compose in the same world
     GaussianCloud cloud;
     GaussianCloud cloud2;
     GaussianCloud merged;
     cloud.initShaders();
     cloud2.initShaders();
-	merged.initShaders();
+    merged.initShaders();
 
     DataLoader loader;
 
     IGFD::FileDialogConfig config;
     bool windowHovered = false;
-    
+
     // Cloud 1
     bool openDepthDialog1 = false;
     bool openColorDialog1 = false;
@@ -261,22 +278,62 @@ void Window::mainloop(int argc, char **argv) {
 
     // Rebuild merged on demand
     auto rebuildMerged = [&]() {
-        if (cloud.initialized && cloud2.initialized) {
-            PointCloudLoader::merge(merged, cloud, cloud2, true);
+        try {
+            // Check memory before merge
+            size_t free_mem, total_mem;
+            cudaError_t err = cudaMemGetInfo(&free_mem, &total_mem);
+            if (err != cudaSuccess) {
+                std::cerr << "CUDA Memory check failed: " << cudaGetErrorString(err) << std::endl;
+                return;
+            }
+
+            size_t required_mem = 0;
+            if (cloud.initialized) required_mem += cloud.num_gaussians * 1000; // rough estimate
+            if (cloud2.initialized) required_mem += cloud2.num_gaussians * 1000;
+
+            if (cloud.initialized && cloud2.initialized) {
+                PointCloudLoader::merge(merged, cloud, cloud2, true);
+            }
+            else if (cloud.initialized) {
+                PointCloudLoader::merge(merged, cloud, GaussianCloud(), true);
+            }
+            else if (cloud2.initialized) {
+                PointCloudLoader::merge(merged, cloud2, GaussianCloud(), true);
+            }
+            else {
+                merged.initialized = false;
+                merged.num_gaussians = 0;
+            }
+
+            cudaError_t cerr = cudaDeviceSynchronize();
+            if (cerr != cudaSuccess) {
+                std::cerr << "CUDA error after merge: " << cudaGetErrorString(cerr) << std::endl;
+                merged.initialized = false;
+                // optionally return / skip any GL usage that depends on 'merged'
+            }
+            cudaError_t last = cudaGetLastError();
+            if (last != cudaSuccess) {
+                std::cerr << "cudaGetLastError() after merge: " << cudaGetErrorString(last) << std::endl;
+                merged.initialized = false;
+            }
         }
-        else if (cloud.initialized) {
-            PointCloudLoader::merge(merged, cloud, GaussianCloud(), true);
+        catch (const std::exception& e) {
+            std::cerr << "Exception during merge: " << e.what() << std::endl;
         }
-        else if (cloud2.initialized) {
-            PointCloudLoader::merge(merged, cloud2, GaussianCloud(), true);
-        }
-        else {
-            merged.initialized = false;
-            merged.num_gaussians = 0;
-        }
-    };
+        };
 
     while (!glfwWindowShouldClose(this->w)) {
+        // Check for GL context loss at the start of each frame
+        GLenum err = glGetError();
+        if (err == GL_CONTEXT_LOST) {
+            std::cerr << "FATAL: OpenGL context lost! Application cannot continue." << std::endl;
+            std::cerr << "Possible causes: GPU driver crash, TDR timeout, out of memory" << std::endl;
+            break;
+        }
+        else if (err != GL_NO_ERROR) {
+            std::cerr << "OpenGL error detected at frame start: " << err << std::endl;
+        }
+
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
@@ -287,11 +344,12 @@ void Window::mainloop(int argc, char **argv) {
         ImGui::EndMainMenuBar();
 
         ImGui::Begin("Window");
-//        ImGui::ShowMetricsWindow();
+        //        ImGui::ShowMetricsWindow();
 
-        if(ImGui::Button("Reload Shaders")){
+        if (ImGui::Button("Reload Shaders")) {
             shaderLoader.checkForFileUpdates();
         }
+
         if (ImGui::Button("Load random")) {
             PointCloudLoader::loadRdm(cloud, 100000, true);
         }
@@ -315,7 +373,7 @@ void Window::mainloop(int argc, char **argv) {
             openDepthDialog2 = true;
         }
         if (!selectedDepthPath2.empty()) ImGui::Text("Depth2: %s", selectedDepthPath2.c_str());
-		if (!selectedColorPath2.empty()) ImGui::Text("Color2: %s", selectedColorPath2.c_str());
+        if (!selectedColorPath2.empty()) ImGui::Text("Color2: %s", selectedColorPath2.c_str());
 
         // Shared intrinsics (adjust to your sensors)
         glm::mat3 DepthIntrinsics1 = glm::mat3(
@@ -392,19 +450,34 @@ void Window::mainloop(int argc, char **argv) {
 
                     if (!selectedDepthPath1.empty() && !selectedColorPath1.empty()) {
                         // Load the first RGBD set into cloud (world pose rgbCamToWorld1)
-                        PointCloudLoader::loadRgbd(
-                            cloud,
-                            selectedDepthPath1,
-                            selectedColorPath1,
-                            DepthIntrinsics1,
-                            RGBIntrinsics1,
-                            R_Cam1,
-							T_Cam1,
-                            rgbToWorldR1,
-							rgbToWorldT1,
-                            true
-                        );
-                        rebuildMerged();
+                        try {
+                            PointCloudLoader::loadRgbd(
+                                cloud,
+                                selectedDepthPath1,
+                                selectedColorPath1,
+                                DepthIntrinsics1,
+                                RGBIntrinsics1,
+                                R_Cam1,
+                                T_Cam1,
+                                rgbToWorldR1,
+                                rgbToWorldT1,
+                                true
+                            );
+
+                            // Synchronize to catch any CUDA errors immediately
+                            cudaError_t err = cudaDeviceSynchronize();
+                            if (err != cudaSuccess) {
+                                std::cerr << "CUDA error after loading cloud1: " << cudaGetErrorString(err) << std::endl;
+                                cloud.initialized = false;
+                            }
+                            else {
+                                rebuildMerged();
+                            }
+                        }
+                        catch (const std::exception& e) {
+                            std::cerr << "Exception loading cloud1: " << e.what() << std::endl;
+                            cloud.initialized = false;
+                        }
                     }
                 }
                 else {
@@ -440,19 +513,34 @@ void Window::mainloop(int argc, char **argv) {
 
                     if (!selectedDepthPath2.empty() && !selectedColorPath2.empty()) {
                         // Load the second RGBD set into cloud2 (world pose rgbCamToWorld2)
-                        PointCloudLoader::loadRgbd(
-                            cloud2,
-                            selectedDepthPath2,
-                            selectedColorPath2,
-                            DepthIntrinsics2,
-                            RGBIntrinsics2,
-							R_Cam2,
-							T_Cam2,
-                            rgbToWorldR2,
-							rgbToWorldT2,
-                            true
-                        );
-                        rebuildMerged();
+                        try {
+                            PointCloudLoader::loadRgbd(
+                                cloud2,
+                                selectedDepthPath2,
+                                selectedColorPath2,
+                                DepthIntrinsics2,
+                                RGBIntrinsics2,
+                                R_Cam2,
+                                T_Cam2,
+                                rgbToWorldR2,
+                                rgbToWorldT2,
+                                true
+                            );
+
+                            // Synchronize to catch any CUDA errors immediately
+                            cudaError_t err = cudaDeviceSynchronize();
+                            if (err != cudaSuccess) {
+                                std::cerr << "CUDA error after loading cloud2: " << cudaGetErrorString(err) << std::endl;
+                                cloud2.initialized = false;
+                            }
+                            else {
+                                rebuildMerged();
+                            }
+                        }
+                        catch (const std::exception& e) {
+                            std::cerr << "Exception loading cloud2: " << e.what() << std::endl;
+                            cloud2.initialized = false;
+                        }
                     }
                 }
                 else {
@@ -477,17 +565,52 @@ void Window::mainloop(int argc, char **argv) {
         glfwGetWindowSize(w, &width, &height);
         glfwGetFramebufferSize(w, &width, &height);
 
-        glViewport(0, 0, width, height); // reset the viewport
-//        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-        // need to clear with alpha = 1 for front to back blending
-        glClearColor(0.0f,0.0f,0.0f,1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-//        windowHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow);
+        // Check for errors before rendering
+        GLenum pre_render_err = glGetError();
+        if (pre_render_err == GL_CONTEXT_LOST) {
+            std::cerr << "GL_CONTEXT_LOST detected before rendering!" << std::endl;
+            break;
+        }
 
-        // Only merged view rendering (points or quads)
+        glViewport(0, 0, width, height); // reset the viewport
+        err = glGetError();
+        if (err == GL_CONTEXT_LOST) {
+            std::cerr << "GL_CONTEXT_LOST after glViewport!" << std::endl;
+            break;
+        }
+
+        //        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+                // need to clear with alpha = 1 for front to back blending
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        err = glGetError();
+        if (err == GL_CONTEXT_LOST) {
+            std::cerr << "GL_CONTEXT_LOST after glClearColor!" << std::endl;
+            break;
+        }
+
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        err = glGetError();
+        if (err == GL_CONTEXT_LOST) {
+            std::cerr << "GL_CONTEXT_LOST after glClear!" << std::endl;
+            break;
+        }
+        //        windowHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow);
+
+                // Only merged view rendering (points or quads)
         if (merged.initialized) {
-            merged.render(camera);
-            merged.GUI(camera);
+            try {
+                merged.render(camera);
+                err = glGetError();
+                if (err == GL_CONTEXT_LOST) {
+                    std::cerr << "GL_CONTEXT_LOST after merged.render()!" << std::endl;
+                    break;
+                }
+
+                merged.GUI(camera);
+            }
+            catch (const std::exception& e) {
+                std::cerr << "Exception during rendering: " << e.what() << std::endl;
+            }
         }
 
         windowHovered = ImGui::GetIO().WantCaptureMouse;
@@ -504,7 +627,7 @@ void Window::mainloop(int argc, char **argv) {
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-        if(windowHovered){
+        if (windowHovered) {
             scroll = 0;
         }
 

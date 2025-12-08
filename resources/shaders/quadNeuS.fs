@@ -63,7 +63,9 @@ float compute_alpha(mat3 cov3D_inv, vec3 cam, vec3 site, float sdf_site, vec3 no
 }
 
 void main(void){
-    
+    out_Color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    return;
+
     const vec4 color = uniforms.predicted_colors[InstanceID];
 
     int Gaussian_ID = uniforms.sorted_gaussian_indices[InstanceID];
@@ -117,8 +119,8 @@ void main(void){
         //} else if (uniforms.mask_render == 1)  {
         //    out_Color = vec4(vec3(1.0f) * alpha, alpha);
         //}
-        //out_Color = vec4(rgb_normal * alpha, alpha);
-        accumColor = vec4(rgb_normal * alpha, alpha);
+        out_Color = vec4(rgb_normal * alpha, alpha);
+        //accumColor = vec4(rgb_normal * alpha, alpha);
         accumAlpha = vec4(alpha); 
     }
 }

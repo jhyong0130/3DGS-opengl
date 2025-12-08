@@ -7,17 +7,17 @@
 
 #include "CommonTypes.h"
 
-//mat3 computeCov3D(const vec4 covX, const vec4 covY, const vec4 covZ, float mod, const mat3 viewMat) {
-//    // Compute rotation matrix from quaternion
-//    mat3 R = mod * mat3(
-//        covX.x, covX.y, covX.z,
-//        covY.x, covY.y, covY.z,
-//        covZ.x, covZ.y, covZ.z
-//    );
-//
-//    const mat3 Sigma = viewMat * R * transpose(viewMat);
-//    return Sigma;
-//}
+mat3 computeCov3D(const vec4 covX, const vec4 covY, const vec4 covZ, float mod, const mat3 viewMat) {
+    // Compute rotation matrix from quaternion
+    mat3 R = mod * mat3(
+        covX.x, covX.y, covX.z,
+        covY.x, covY.y, covY.z,
+        covZ.x, covZ.y, covZ.z
+    );
+
+    const mat3 Sigma = viewMat * R * transpose(viewMat);
+    return Sigma;
+}
 
 //mat3 computeCov3D(const vec3 scale, float mod, const vec4 rot, const mat3 viewMat) {
 //    mat3 S = mat3(1.0f);
@@ -42,59 +42,6 @@
 //    const mat3 Sigma = M * transpose(M);
 //    return Sigma;
 //}
-
-// computeCov3D(covX, covY, covZ, rotations[Gaussian_ID], scale, scale_modifier, viewMat)
-mat3 computeCov3D(const vec4 covX,
-    const vec4 covY,
-    const vec4 covZ,
-    const vec4 rot,
-    const vec3 scale,
-    const float mod,
-    const mat3 viewMat)
-{
-    // Scale matrix (diagonal). We square later when forming covariance.
-    vec3 s = mod * scale;
-    mat3 S = mat3(0.0f);
-    S[0][0] = s.x;
-    S[1][1] = s.y;
-    S[2][2] = s.z;
-
-    // Quaternion (r, x, y, z) stored as (w, x, y, z) in rot.
-    float r = rot.x;
-    float x = rot.y;
-    float y = rot.z;
-    float z = rot.w;
-
-    // Rotation from quaternion.
-    mat3 Rq = mat3(
-        1.f - 2.f * (y * y + z * z), 2.f * (x * y - r * z), 2.f * (x * z + r * y),
-        2.f * (x * y + r * z), 1.f - 2.f * (x * x + z * z), 2.f * (y * z - r * x),
-        2.f * (x * z - r * y), 2.f * (y * z + r * x), 1.f - 2.f * (x * x + y * y)
-    );
-
-    // Optional precomputed orientation basis from covX/covY/covZ (xyz components).
-    // If these vectors are near-zero length we skip them.
-    mat3 Rp = mat3(
-        covX.x, covX.y, covX.z,
-        covY.x, covY.y, covY.z,
-        covZ.x, covZ.y, covZ.z
-    );
-
-    // Decide whether to use provided basis. We check summed squared length.
-    float basisStrength = dot(covX.xyz, covX.xyz) + dot(covY.xyz, covY.xyz) + dot(covZ.xyz, covZ.xyz);
-    // Combine: if basisStrength significant, treat Rp as an additional rotation before quaternion.
-    mat3 R = (basisStrength > 0.00001f) ? (Rq * Rp) : Rq;
-
-    // Covariance: Sigma = viewMat * R * (S^2) * R^T * viewMat^T
-    // Construct S^2 without an extra matrix multiply.
-    mat3 S2 = mat3(0.0f);
-    S2[0][0] = S[0][0] * S[0][0];
-    S2[1][1] = S[1][1] * S[1][1];
-    S2[2][2] = S[2][2] * S[2][2];
-
-    mat3 inner = R * S2 * transpose(R);
-    return viewMat * inner * transpose(viewMat);
-}
 
 
 vec2 computeAABB(const vec3 conic, const float opacity, const float min_alpha) {

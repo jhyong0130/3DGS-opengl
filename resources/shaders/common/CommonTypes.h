@@ -38,8 +38,8 @@ struct Uniforms{
     vec4* restrict covX;
     vec4* restrict covY;
     vec4* restrict covZ;
-    vec4* restrict rotations;
-    vec4* restrict scales;
+    //vec4* restrict rotations;
+    //vec4* restrict scales;
     float* restrict sdf;
     float* restrict sh_coeffs_red;
     float* restrict sh_coeffs_green;

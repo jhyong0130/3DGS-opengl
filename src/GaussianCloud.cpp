@@ -29,37 +29,6 @@ float h_SDF_Torus(vec3 point, float R_max, float R_min) {
     return sqrt(qx * qx + qz * qz) - R_min;
 }
 
-// -- Add helper functions
-static void checkGLResetAndError(const char* tag) {
-    GLenum err = glGetError();
-    if (err != GL_NO_ERROR) {
-        std::cerr << "[GL ERROR] " << tag << " glGetError() = 0x" << std::hex << err << std::dec << std::endl;
-    }
-    GLenum reset = glGetGraphicsResetStatus();
-    if (reset != GL_NO_ERROR) {
-        std::cerr << "[GL RESET] " << tag << " glGetGraphicsResetStatus() = 0x" << std::hex << reset << std::dec << std::endl;
-    }
-}
-
-static void debugPrintUniformPointers(const Uniforms & u) {
-    auto printPtr = [](const char* name, uintptr_t p) {
-        std::cerr << name << " = 0x" << std::hex << p << std::dec << std::endl;
-        };
-    printPtr("positions ptr", reinterpret_cast<uintptr_t>(u.positions));
-    printPtr("covX ptr", reinterpret_cast<uintptr_t>(u.covX));
-    printPtr("covY ptr", reinterpret_cast<uintptr_t>(u.covY));
-    printPtr("covZ ptr", reinterpret_cast<uintptr_t>(u.covZ));
-    printPtr("rotations ptr", reinterpret_cast<uintptr_t>(u.rotations));
-    printPtr("scales ptr", reinterpret_cast<uintptr_t>(u.scales));
-    printPtr("sdf ptr", reinterpret_cast<uintptr_t>(u.sdf));
-    printPtr("sh_red ptr", reinterpret_cast<uintptr_t>(u.sh_coeffs_red));
-    printPtr("visible_gaussians_counter ptr", reinterpret_cast<uintptr_t>(u.visible_gaussians_counter));
-    std::cerr << "num_gaussians = " << u.num_gaussians << " width=" << u.width << " height=" << u.height << std::endl;
-    std::cerr << "sizeof(Uniforms)=" << sizeof(Uniforms)
-        << " sizeof(glm::mat3)=" << sizeof(glm::mat3)
-        << " sizeof(glm::vec3)=" << sizeof(glm::vec3) << std::endl;
-}
-
 void Print(Uniforms uniforms) {
     std::cout << "scale modifier: " << uniforms.scale_modifier << std::endl;
     std::cout << "size: " << uniforms.width << ", " << uniforms.width << std::endl;
@@ -111,6 +80,13 @@ void showGLTextureInOpenCV(GLuint textureID, int width, int height) {
 }
 
 void GaussianCloud::prepareRender(Camera &camera, bool GT) {
+    // Check if OpenGL context is valid before proceeding
+    GLenum contextError = glGetError();
+    if (contextError == GL_CONTEXT_LOST) {
+        std::cerr << "OpenGL context lost before prepareRender. Cannot proceed." << std::endl;
+        return;
+    }
+
     const float width = (float)camera.getFramebufferSize().x;
     const float height = (float)camera.getFramebufferSize().y;
 
@@ -220,8 +196,8 @@ void GaussianCloud::prepareRender(Camera &camera, bool GT) {
     uniforms_cpu.covX = reinterpret_cast<vec4*>(covariance[0].getGLptr());
     uniforms_cpu.covY = reinterpret_cast<vec4*>(covariance[1].getGLptr());
     uniforms_cpu.covZ = reinterpret_cast<vec4*>(covariance[2].getGLptr());
-    uniforms_cpu.rotations = reinterpret_cast<vec4 *>(rotations.getGLptr());
-    uniforms_cpu.scales = reinterpret_cast<vec4 *>(scales.getGLptr());
+    //uniforms_cpu.rotations = reinterpret_cast<vec4 *>(rotations.getGLptr());
+    //uniforms_cpu.scales = reinterpret_cast<vec4 *>(scales.getGLptr());
     uniforms_cpu.sdf = reinterpret_cast<float *>(sdf.getGLptr());
     uniforms_cpu.sh_coeffs_red = reinterpret_cast<float *>(sh_coeffs[0].getGLptr());
     uniforms_cpu.sh_coeffs_green = reinterpret_cast<float *>(sh_coeffs[1].getGLptr());
@@ -251,24 +227,8 @@ void GaussianCloud::prepareRender(Camera &camera, bool GT) {
         std::cin >> tmp;
     }*/
 
-    std::cerr << "[DEBUG] GPU buffer IDs:" << std::endl;
-    std::cerr << " positions.getID() = " << positions.getID() << std::endl;
-    std::cerr << " covariance[0].getID() = " << covariance[0].getID()
-        << " covariance[1].getID() = " << covariance[1].getID()
-        << " covariance[2].getID() = " << covariance[2].getID() << std::endl;
-    std::cerr << " sh_coeffs[0].getID() = " << sh_coeffs[0].getID()
-        << " sh_coeffs[1].getID() = " << sh_coeffs[1].getID()
-        << " sh_coeffs[2].getID() = " << sh_coeffs[2].getID() << std::endl;
-    std::cerr << " visible_gaussians_counter.getID() = " << visible_gaussians_counter.getID() << std::endl;
-
-    debugPrintUniformPointers(uniforms_cpu);
-    checkGLResetAndError("before uniforms.storeData");
-
     uniforms.storeData(&uniforms_cpu, 1, sizeof(Uniforms));
-    checkGLResetAndError("after uniforms.storeData");
-
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, uniforms.getID());
-    checkGLResetAndError("after glBindBufferBase");
 }
 
 void GaussianCloud::loadGTImage(unsigned char* GT_image, int cols, int rows) {
@@ -335,35 +295,20 @@ void GaussianCloud::loadGTImage(unsigned char* GT_image, int cols, int rows) {
 
 void GaussianCloud::render(Camera &camera) {
 
-    prepareRender(camera);
+    prepareRender(camera, false);
 
     if(renderAsQuads){
-        if (softwareBlending) {
-            emptyfbo.bind();
-            glViewport(0, 0, fbo.getWidth(), fbo.getHeight());
-            const GLuint ID = fbo.getAttachment(GL_COLOR_ATTACHMENT0)->getID();
-            vec4 value = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-            glClearTexImage(ID, 0, GL_RGBA, GL_FLOAT, &value);
-        }
-        else {
-            fbo.bind();
-            glViewport(0, 0, fbo.getWidth(), fbo.getHeight());
-            // need to clear with alpha = 1 for front to back blending
-            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
-
-        }
-
-
+        fbo.bind();
+        glViewport(0, 0, fbo.getWidth(), fbo.getHeight());
+        // need to clear with alpha = 1 for front to back blending
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
         glEnable(GL_BLEND);
-        if(front_to_back){
-            glBlendEquation(GL_FUNC_ADD);
-            glBlendFuncSeparate(GL_DST_ALPHA, GL_ONE,GL_ZERO,GL_ONE_MINUS_SRC_ALPHA);
-        }else{
-            glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-        }
-
+		// Always do front to back blending
+        glBlendEquation(GL_FUNC_ADD);
+        glBlendFuncSeparate(GL_DST_ALPHA, GL_ONE, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
         glDisable(GL_CULL_FACE);
+        glDisable(GL_DEPTH_TEST);
 
         {
             auto& q = timers[OPERATIONS::TEST_VISIBILITY].push_back();
@@ -421,7 +366,7 @@ void GaussianCloud::render(Camera &camera) {
             ImGui::Text("conic_opacity: %.4f %.4f %.4f %.2f", conic[0], conic[1], conic[2], conic[3]);
             ImGui::Text("eigen_vec: %.2f %.2f", eigen_vec[0], eigen_vec[1]);
         }
-
+        //  add code
         {
             auto& q = timers[OPERATIONS::DRAW_AS_QUADS].push_back();
             q.begin();
@@ -429,11 +374,6 @@ void GaussianCloud::render(Camera &camera) {
             // draw a 2D quad for every visible gaussian
             auto& s = softwareBlending ? quad_interlock_Shader : quadShader;
             s.start();
-
-            if (softwareBlending) {
-                const GLuint ID = fbo.getAttachment(GL_COLOR_ATTACHMENT0)->getID();
-                glBindImageTexture(0, ID, 0, false, 0, GL_READ_WRITE, FBO_FORMAT);
-            }
 
             VAO vao; // empty vertex array
             vao.bind();
