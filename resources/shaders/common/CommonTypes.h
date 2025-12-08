@@ -34,7 +34,7 @@ struct Uniforms{
     int front_to_back;
 
     vec4* restrict positions;
-	vec4* restrict normals;
+	//vec4* restrict normals;
     vec4* restrict covX;
     vec4* restrict covY;
     vec4* restrict covZ;
