@@ -797,7 +797,12 @@ void PointCloudLoader::merge(GaussianCloud& dst,
     std::vector<glm::vec4> posA, posB;
     if (hasA) posA = fetchVec4(a, a.positions_cpu, a.positions, nA);
     if (hasB) posB = fetchVec4(b, b.positions_cpu, b.positions, nB);
-
+    
+    // Normals
+    std::vector<glm::vec4> normA, normB;
+    if (hasA) normA = fetchVec4(a, a.normals_cpu, a.normals, nA);
+    if (hasB) normB = fetchVec4(b, b.normals_cpu, b.normals, nB);
+    
     // Opacities
     std::vector<float> opacA, opacB;
     if (hasA) opacA = fetchFloat(a, a.opacities_cpu, a.opacities, nA);
@@ -807,11 +812,6 @@ void PointCloudLoader::merge(GaussianCloud& dst,
     std::vector<float> sdfA, sdfB;
     if (hasA) sdfA = fetchFloat(a, a.sdf_cpu, a.sdf, nA);
     if (hasB) sdfB = fetchFloat(b, b.sdf_cpu, b.sdf, nB);
-
-    // Normals
-    std::vector<glm::vec4> normA, normB;
-    if (hasA) normA = fetchVec4(a, a.normals_cpu, a.normals, nA);
-    if (hasB) normB = fetchVec4(b, b.normals_cpu, b.normals, nB);
 
     // Covariances (X, Y, Z rows)
     std::vector<glm::vec4> covXA, covYA, covZA;
@@ -848,7 +848,19 @@ void PointCloudLoader::merge(GaussianCloud& dst,
     else if (hasB) dst.positions_cpu.insert(dst.positions_cpu.end(), nB, glm::vec4(0.f)); // Fallback safety
 
     dst.positions.storeData(dst.positions_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    
+    // 2.5 Normals
+    dst.normals_cpu.clear();
+    dst.normals_cpu.reserve(dst.num_gaussians);
 
+    if (hasA && !normA.empty()) dst.normals_cpu.insert(dst.normals_cpu.end(), normA.begin(), normA.end());
+    else if (hasA) dst.normals_cpu.insert(dst.normals_cpu.end(), nA, glm::vec4(0, 0, 1, 0));
+
+    if (hasB && !normB.empty()) dst.normals_cpu.insert(dst.normals_cpu.end(), normB.begin(), normB.end());
+    else if (hasB) dst.normals_cpu.insert(dst.normals_cpu.end(), nB, glm::vec4(0, 0, 1, 0));
+
+    dst.normals.storeData(dst.normals_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    
     // 2.2 Opacities
     dst.opacities_cpu.clear();
     dst.opacities_cpu.reserve(dst.num_gaussians);
@@ -906,18 +918,6 @@ void PointCloudLoader::merge(GaussianCloud& dst,
         }
         dst.sh_coeffs[ch].storeData(merged.data(), dst.num_gaussians, 16 * sizeof(float), 0, useCudaGLInterop, false, true);
     }
-
-    // 2.5 Normals
-    dst.normals_cpu.clear();
-    dst.normals_cpu.reserve(dst.num_gaussians);
-
-    if (hasA && !normA.empty()) dst.normals_cpu.insert(dst.normals_cpu.end(), normA.begin(), normA.end());
-    else if (hasA) dst.normals_cpu.insert(dst.normals_cpu.end(), nA, glm::vec4(0, 0, 1, 0));
-
-    if (hasB && !normB.empty()) dst.normals_cpu.insert(dst.normals_cpu.end(), normB.begin(), normB.end());
-    else if (hasB) dst.normals_cpu.insert(dst.normals_cpu.end(), nB, glm::vec4(0, 0, 1, 0));
-
-    dst.normals.storeData(dst.normals_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
 
     // 2.6 Covariance
     dst.covX_cpu.clear(); dst.covY_cpu.clear(); dst.covZ_cpu.clear();
@@ -985,6 +985,79 @@ void PointCloudLoader::merge(GaussianCloud& dst,
     dst.predicted_colors.storeData(nullptr, dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, true, true);
 
     dst.initialized = true;
+
+	// write to txt file for debugging
+    // write to txt file for debugging
+    std::ofstream debug_file("merged_gaussian_cloud_debug.txt");
+    if (debug_file.is_open()) {
+        debug_file << "Merged Gaussian Cloud Debug Output\n";
+        debug_file << "===================================\n";
+        debug_file << "Total Gaussians: " << dst.num_gaussians << "\n";
+        debug_file << "Source A: " << nA << " gaussians\n";
+        debug_file << "Source B: " << nB << " gaussians\n";
+        debug_file << "===================================\n\n";
+
+        // Write header
+        debug_file << "Index,PosX,PosY,PosZ,NormalX,NormalY,NormalZ,Opacity,SDF,"
+            << "CovXX,CovXY,CovXZ,CovYX,CovYY,CovYZ,CovZX,CovZY,CovZZ,"
+            << "SH_R_DC,SH_G_DC,SH_B_DC\n";
+
+        // Write data for each Gaussian
+        for (int i = 0; i < dst.num_gaussians; i++) {
+            // Position
+            debug_file << i << ","
+                << dst.positions_cpu[i].x << "," << dst.positions_cpu[i].y << "," << dst.positions_cpu[i].z << ",";
+
+            // Normal
+            if (i < (int)dst.normals_cpu.size()) {
+                debug_file << dst.normals_cpu[i].x << "," << dst.normals_cpu[i].y << "," << dst.normals_cpu[i].z << ",";
+            }
+            else {
+                debug_file << "0,0,1,";
+            }
+
+            // Opacity
+            if (i < (int)dst.opacities_cpu.size()) {
+                debug_file << dst.opacities_cpu[i] << ",";
+            }
+            else {
+                debug_file << "1.0,";
+            }
+
+            // SDF
+            if (i < (int)dst.sdf_cpu.size()) {
+                debug_file << dst.sdf_cpu[i] << ",";
+            }
+            else {
+                debug_file << "0.0,";
+            }
+
+            // Covariance matrix (3x3)
+            if (i < (int)dst.covX_cpu.size() && i < (int)dst.covY_cpu.size() && i < (int)dst.covZ_cpu.size()) {
+                debug_file << dst.covX_cpu[i].x << "," << dst.covX_cpu[i].y << "," << dst.covX_cpu[i].z << ","
+                    << dst.covY_cpu[i].x << "," << dst.covY_cpu[i].y << "," << dst.covY_cpu[i].z << ","
+                    << dst.covZ_cpu[i].x << "," << dst.covZ_cpu[i].y << "," << dst.covZ_cpu[i].z << ",";
+            }
+            else {
+                debug_file << "0.01,0,0,0,0.01,0,0,0,0.01,";
+            }
+
+            // SH coefficients (DC component only for R,G,B)
+            debug_file << "SH_data_in_buffer,SH_data_in_buffer,SH_data_in_buffer";
+
+            debug_file << "\n";
+        }
+
+        debug_file << "\n===================================\n";
+        debug_file << "Note: SH coefficients are stored in GPU buffers (16 coeffs x 3 channels)\n";
+        debug_file << "To inspect SH data, it needs to be read back from dst.sh_coeffs[0-2]\n";
+        debug_file.close();
+
+        std::cout << "Debug: Merged Gaussian cloud written to 'merged_gaussian_cloud_debug.txt'\n";
+    }
+    else {
+        std::cerr << "Error: Could not open debug file for writing!\n";
+    }
 
     std::cout << "Merged clouds: " << nA << " + " << nB
         << " = " << dst.num_gaussians << " gaussians.\n";

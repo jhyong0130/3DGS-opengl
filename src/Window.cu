@@ -327,7 +327,6 @@ void Window::mainloop(int argc, char** argv) {
         GLenum err = glGetError();
         if (err == GL_CONTEXT_LOST) {
             std::cerr << "FATAL: OpenGL context lost! Application cannot continue." << std::endl;
-            std::cerr << "Possible causes: GPU driver crash, TDR timeout, out of memory" << std::endl;
             break;
         }
         else if (err != GL_NO_ERROR) {
@@ -596,7 +595,7 @@ void Window::mainloop(int argc, char** argv) {
         }
         //        windowHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow);
 
-                // Only merged view rendering (points or quads)
+        // Only merged view rendering (points or quads)
         if (merged.initialized) {
             try {
                 merged.render(camera);
@@ -605,7 +604,6 @@ void Window::mainloop(int argc, char** argv) {
                     std::cerr << "GL_CONTEXT_LOST after merged.render()!" << std::endl;
                     break;
                 }
-
                 merged.GUI(camera);
             }
             catch (const std::exception& e) {

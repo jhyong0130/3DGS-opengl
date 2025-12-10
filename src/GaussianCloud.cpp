@@ -29,6 +29,18 @@ float h_SDF_Torus(vec3 point, float R_max, float R_min) {
     return sqrt(qx * qx + qz * qz) - R_min;
 }
 
+// -- Add helper functions
+void checkGLResetAndError(const std::string& tag) {
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) { 
+        std::cerr << "[GL ERROR] " << tag << " glGetError() = 0x" << std::hex << err << std::dec << std::endl; 
+    } 
+    GLenum reset = glGetGraphicsResetStatus();
+    if (reset != GL_NO_ERROR) { 
+        std::cerr << "[GL RESET] " << tag << " glGetGraphicsResetStatus() = 0x" << std::hex << reset << std::dec << std::endl; 
+    }
+}
+
 void Print(Uniforms uniforms) {
     std::cout << "scale modifier: " << uniforms.scale_modifier << std::endl;
     std::cout << "size: " << uniforms.width << ", " << uniforms.width << std::endl;
@@ -129,10 +141,10 @@ void GaussianCloud::prepareRender(Camera &camera, bool GT) {
         }
     }
 
-
+    checkGLResetAndError("before storing visible gaussian");
     const int zero = 0;
     visible_gaussians_counter.storeData(&zero, 1, sizeof(int), 0, false, false, true);
-    
+
 	// compute camera parameters
     glm::mat3 R = glm::mat3(camera.getViewMatrix());
     glm::vec3 T = glm::vec3(camera.getViewMatrix()[3]);
@@ -160,11 +172,11 @@ void GaussianCloud::prepareRender(Camera &camera, bool GT) {
     Uniforms uniforms_cpu = {};
     uniforms_cpu.viewMat = camera.getViewMatrix();// *rot;
     uniforms_cpu.projMat = camera.getProjectionMatrix();
-	uniforms_cpu.K = K;
-	uniforms_cpu.R = R;
-	uniforms_cpu.T = T;
 
     uniforms_cpu.camera_pos = vec4(camera.getPosition(), 1.0f);
+    uniforms_cpu.K = glm::mat4(K);  // Convert mat3 to mat4
+    uniforms_cpu.R = glm::mat4(R);
+    uniforms_cpu.T = glm::vec4(T, 0.0f);
     //std::cout << uniforms_cpu.camera_pos.x << ", " << uniforms_cpu.camera_pos.y << ", " << uniforms_cpu.camera_pos.z << std::endl;
         
     uniforms_cpu.num_gaussians = num_gaussians;
@@ -193,6 +205,7 @@ void GaussianCloud::prepareRender(Camera &camera, bool GT) {
     uniforms_cpu.SDF_scale = SDF_scale;
 
     uniforms_cpu.positions = reinterpret_cast<vec4 *>(positions.getGLptr());
+    uniforms_cpu.normals = reinterpret_cast<vec4*>(normals.getGLptr());
     uniforms_cpu.covX = reinterpret_cast<vec4*>(covariance[0].getGLptr());
     uniforms_cpu.covY = reinterpret_cast<vec4*>(covariance[1].getGLptr());
     uniforms_cpu.covZ = reinterpret_cast<vec4*>(covariance[2].getGLptr());
@@ -227,7 +240,9 @@ void GaussianCloud::prepareRender(Camera &camera, bool GT) {
         std::cin >> tmp;
     }*/
 
+    checkGLResetAndError("before uniforms.storeData");
     uniforms.storeData(&uniforms_cpu, 1, sizeof(Uniforms));
+    checkGLResetAndError("after uniforms.storeData");
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, uniforms.getID());
 }
 
@@ -295,7 +310,8 @@ void GaussianCloud::loadGTImage(unsigned char* GT_image, int cols, int rows) {
 
 void GaussianCloud::render(Camera &camera) {
 
-    prepareRender(camera, false);
+    prepareRender(camera);
+    checkGLResetAndError("after preparing render");
 
     if(renderAsQuads){
         fbo.bind();
@@ -366,7 +382,7 @@ void GaussianCloud::render(Camera &camera) {
             ImGui::Text("conic_opacity: %.4f %.4f %.4f %.2f", conic[0], conic[1], conic[2], conic[3]);
             ImGui::Text("eigen_vec: %.2f %.2f", eigen_vec[0], eigen_vec[1]);
         }
-        //  add code
+
         {
             auto& q = timers[OPERATIONS::DRAW_AS_QUADS].push_back();
             q.begin();
@@ -418,7 +434,7 @@ void GaussianCloud::render(Camera &camera) {
             predictColorsForAllShader.stop();
             q.end();
         }
-
+        checkGLResetAndError("after predicting colors");
         {
             auto& q = timers[OPERATIONS::DRAW_AS_POINTS].push_back();
             q.begin();
@@ -433,7 +449,7 @@ void GaussianCloud::render(Camera &camera) {
             q.end();
             glDisable(GL_PROGRAM_POINT_SIZE);
         }
-
+        checkGLResetAndError("after predicting colors");
     }
 
 }
@@ -699,7 +715,7 @@ void GaussianCloud::GUI(Camera& camera) {
     ImGui::Checkbox("Front to back blending", &front_to_back);
     ImGui::Checkbox("Software alpha-blending", &softwareBlending);
     ImGui::SliderFloat("scale_modifier", &scale_modifier, 0.001f, 10.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-	ImGui::SliderFloat("scale_neus", &scale_neus, 0.001f, 10.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+	ImGui::SliderFloat("scale_neus", &scale_neus, 0.00001f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
     ImGui::SliderFloat("min_opacity", &min_opacity, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
 
 

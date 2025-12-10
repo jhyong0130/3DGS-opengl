@@ -7,14 +7,14 @@
 
 #include "GLSLDefines.h"
 
-struct Uniforms{
+struct Uniforms {
     mat4 viewMat;
     mat4 projMat;
 
     vec4 camera_pos;
-    mat3 K;
-    mat3 R;
-    vec3 T;
+    mat4 K;
+    mat4 R;
+    vec4 T;
 
     int num_gaussians;
     float near_plane;
@@ -34,7 +34,7 @@ struct Uniforms{
     int front_to_back;
 
     vec4* restrict positions;
-	vec4* restrict normals;
+    vec4* restrict normals;
     vec4* restrict covX;
     vec4* restrict covY;
     vec4* restrict covZ;

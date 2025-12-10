@@ -43,7 +43,7 @@ void main(void){
 
     const vec4 box = uniforms.bounding_boxes[InstanceID]; // oriented bounding box
     center = vec2(box.x, box.y); // bounding box center, in pixels
-    const vec2 half_extent = 2.0f*vec2(box.z, box.w); // bounding box half size, in pixels
+    const vec2 half_extent = vec2(box.z, box.w); // bounding box half size, in pixels
 
     // direction of major axis
     const vec2 dir = uniforms.eigen_vecs[InstanceID];
