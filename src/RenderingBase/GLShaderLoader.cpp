@@ -307,9 +307,10 @@ Shader GLShaderLoader::loadAndCompileSources(const std::vector<std::string> &loc
 
 void GLShaderLoader::setListener(const std::string &path, Shader *shader) {
     if(shader == nullptr){
-        shaders.erase(shaders.find(path));
+        // Remove all entries with this path (shouldn't happen normally)
+        shaders.erase(path);
     }else{
-        shaders[path] = shader;
+        shaders.insert({path, shader});
     }
 }
 
@@ -542,8 +543,19 @@ void GLShaderLoader::checkForFileUpdates() {
 
     }
 
+    // Track which shaders we've already processed to avoid reloading the same shader multiple times
+    std::unordered_set<Shader*> processedShaders;
+
     for(auto& it : shaders){
-        ShaderProgram& data = it.second->data;
+        Shader* shader = it.second;
+        
+        // Skip if we've already processed this shader instance
+        if(processedShaders.contains(shader)){
+            continue;
+        }
+        processedShaders.insert(shader);
+
+        ShaderProgram& data = shader->data;
         bool needsReloading = false;
         for(auto& [source_type, source] : data.sources){
             uint64_t fileWriteTime = std::filesystem::last_write_time(source.path).time_since_epoch().count();
@@ -570,8 +582,13 @@ void GLShaderLoader::checkForFileUpdates() {
             ShaderProgram newData = loadShaderData(paths, types, data.loadingOrder);
 
             if(newData.compiledSuccessfully){
+                // Delete the old program
+                glDeleteProgram(data.programID);
                 data = newData;
-                it.second->init_uniforms(it.second->uniforms_names);
+                shader->init_uniforms(shader->uniforms_names);
+                std::cout << "Reloaded shader: " << it.first << std::endl;
+            } else {
+                std::cout << "Failed to reload shader: " << it.first << std::endl;
             }
         }
     }
@@ -583,7 +600,15 @@ void GLShaderLoader::removeListener(Shader& shader){
     glDeleteProgram(shader.data.programID);
     shader.data.programID = 0;
     for(auto& it : shader.data.sources){
-        GLShaderLoader::instance->setListener(it.second.path, nullptr);
+        // Find and remove only this specific shader instance from the multimap
+        auto range = GLShaderLoader::instance->shaders.equal_range(it.second.path);
+        for(auto iter = range.first; iter != range.second; ){
+            if(iter->second == &shader){
+                iter = GLShaderLoader::instance->shaders.erase(iter);
+            } else {
+                ++iter;
+            }
+        }
     }
 }
 
