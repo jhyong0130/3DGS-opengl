@@ -56,10 +56,28 @@ float compute_alpha(mat3 cov3D_inv, vec3 cam, vec3 site, float sdf_site, vec3 no
     float bb = b/2.0f + uniforms.scale_neus * lambda * delta;
     float cc = c/2.0f + uniforms.scale_neus * delta * delta;
     float aa = a/2.0f + uniforms.scale_neus * lambda*lambda; //uniforms.scale_neus *
+    
     if (aa < 1e-12f) return 0.0f;
     float K = (sqrt(PI)/(2.0f*sqrt(aa))) * sqrt(uniforms.scale_neus);// * uniforms.scale_neus;
     float power = K * exp(bb*bb/aa - cc) * erfc_approx(bb/sqrt(aa));
     return min(1.0f, power); //lambda < 0.0 ? min(1.0, power) : 0.0;
+
+    //float aa = max(a * 0.5f, 1e-6f);
+    //float bb = b * 0.5f;
+    //float cc = c * 0.5f;
+    //
+    //float x = bb / sqrt(aa);
+    //x = clamp(x, -5.0f, 5.0f);
+    //
+    //float e = bb * bb / aa - cc;
+    //e = clamp(e, -40.0f, 10.0f);
+    //
+    //float alpha =
+    //    (sqrt(PI) / (2.0f * sqrt(aa))) *
+    //    exp(e) *
+    //    erfc_approx(x);
+    
+    //return min(1.0f, alpha);
 }
 
 void main(void){
@@ -69,8 +87,16 @@ void main(void){
     int Gaussian_ID = uniforms.sorted_gaussian_indices[InstanceID];
 
     const vec3 site = vec3(uniforms.positions[Gaussian_ID]);
-    vec3 normal = vec3(uniforms.normals[Gaussian_ID]);
+    vec3 normal_world = vec3(uniforms.normals[Gaussian_ID]);
     const float sdf_site = 0.0f;//uniforms.sdf[Gaussian_ID];
+
+    const vec4 conic_opacity = uniforms.conic_opacity[InstanceID];
+    const mat2 conic = mat2(conic_opacity.x, conic_opacity.y,
+                        conic_opacity.y, conic_opacity.z);
+    const float power = -0.5f * dot(local_coord, conic * local_coord);
+    if (power < -3.0f) {
+        ___discard;
+    }
 
     vec2 curr_pix = local_coord + center;
     vec3 local_ray = normalize(vec3((curr_pix.x - uniforms.K[2][0])/uniforms.K[0][0], (curr_pix.y - uniforms.K[2][1])/uniforms.K[1][1], 1.0f)); 
@@ -81,35 +107,35 @@ void main(void){
                                   1.0));
 
     // convert ray to world coords:
-    mat3 R = mat3(uniforms.R); // check convention: R should be world->camera or camera->world
+    mat3 R = mat3(uniforms.R); // check convention: R should be world->camera 
     vec3 cam_ray_world = transpose(R) * cam_ray_cam; // camera->world
-
+    vec3 normal_cam = normalize(R * normal_world);
     vec3 mean = vec3(mat3(uniforms.R) * site + vec3(uniforms.T));
 
     // Compute inverse of cov3D
     mat3 cov3D_reg = cov3D;
     float det_cov = determinant(cov3D_reg);
-    if (abs(det_cov) < 1.0e-30) {
-        ___discard;
-    }
-
-
+    //if (abs(det_cov) < 1.0e-30) {
+    //    ___discard;
+    //}
     mat3 cov3D_inv = inverse(cov3D_reg);
-    
+    //mat3 cov3D_inv = mat3(0.01f); // debug alpha
     vec3 cam =  vec3(uniforms.camera_pos);
     vec3 local_delta = (cam - site);
-    const float lambda = dot(cam_ray_world, normal);
-    const float delta = sdf_site + dot(local_delta, normal);
+    const float lambda = dot(cam_ray_world, normal_world);
+    const float delta = sdf_site + dot(local_delta, normal_world);
 
+    //if (any(isnan(cov3D_inv[0])) || any(isnan(cov3D_inv[1])) || any(isnan(cov3D_inv[2])) || 
+    //    abs(lambda) < 1.0e-30 || lambda > 0.0f || delta < 0.0f) {
+    //    ___discard;
+    //}
 
-    if (any(isnan(cov3D_inv[0])) || any(isnan(cov3D_inv[1])) || any(isnan(cov3D_inv[2])) || 
-        abs(lambda) < 1.0e-30 || lambda > 0.0f || delta < 0.0f) {
-        ___discard;
-    }
-    float alpha = compute_alpha(cov3D_inv, cam, site, sdf_site, normal, cam_ray_world);
-    
-    float length_nml = sqrt(normal.x*normal.x + normal.y*normal.y + normal.z*normal.z);
-    vec3 rgb_normal = (1.0f + normal / length_nml)/2.0f;
+    float alpha = compute_alpha(cov3D_inv, cam, site, sdf_site, normal_world, cam_ray_world);
+    //float alpha = 1.0f;
+    //float length_nml = sqrt(normal.x*normal.x + normal.y*normal.y + normal.z*normal.z);
+    //vec3 rgb_normal = (1.0f + normal / length_nml)/2.0f;
+
+    // float a = clamp(alpha, 0.0, 1.0); debug alpha
 
     if (!isnan(alpha) && !isinf(alpha)) {
         //if (uniforms.mask_render == 0) {
@@ -117,8 +143,11 @@ void main(void){
         //} else if (uniforms.mask_render == 1)  {
         //    out_Color = vec4(vec3(1.0f) * alpha, alpha);
         //}
+        
         out_Color = vec4(vec3(color) * alpha, alpha);
-        //accumColor = vec4(vec3(color) * alpha, alpha);
+        //out_Color = vec4(vec3(a), 1.0f); // debug alpha
+        
+        //accumColor = vec4(rgb_normal * alpha, alpha);
         //accumAlpha = vec4(alpha); 
     }
 }

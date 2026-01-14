@@ -258,23 +258,77 @@ void Window::mainloop(int argc, char** argv) {
     std::string selectedDepthPath2;
     std::string selectedColorPath2;
 
+    // Fixed paths for RGBD images
+    const std::string fixedDepthPath1 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cam0\\depth\\frame_000025.png";
+    const std::string fixedColorPath1 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cam0\\color\\frame_000025.png";
+    const std::string fixedDepthPath2 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cam2\\depth\\frame_000025.png";
+    const std::string fixedColorPath2 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cam2\\color\\frame_000025.png";
+
     glm::mat3 rgbToWorldR1 = {
-        0.995607f, 0.00315181f, -0.0935726f,
-        -0.00351833f, 0.999986f, -0.00374946f,
-        0.0935595f, 0.00406216f, 0.995605f
+        0.99902f, -0.0146442f, -0.0417634f,
+        0.00912435f,  0.99151f, -0.129354f,
+        0.0433062f, 0.128846f, 0.990672f
     };
     glm::vec3 rgbToWorldT1 = {
-        0.304772f, -0.778028f, -3.53257f
+        0.255531f, 0.16251f, -1.34179f
     };
     glm::mat3 rgbToWorldR2 = {
-        0.998586f, -0.011161f, -0.0519769f,
-        -0.00574705f, 0.994645f, -0.103182f,
-        0.0528504f, -0.102737f, -0.993303f
+        -0.997941f, -0.00938262f, 0.0634527f,
+        -0.00008146f, 0.989427f, 0.145024f,
+        -0.0641427f, 0.14472f, -0.98739f
     };
     glm::vec3 rgbToWorldT2 = {
-        -0.0477488f, 0.0488216f, 2.26475f
+        -0.132151f, 0.189306f, -1.37699f
     };
 
+    // Shared intrinsics (adjust to your sensors)
+    glm::mat3 DepthIntrinsics1 = glm::mat3(
+        503.272f, 0.0f, 0.0f,
+        0.0f, 503.428f, 0.0f,
+        311.493f, 341.854f, 1.0f
+    );
+    glm::mat3 RGBIntrinsics1 = glm::mat3(
+        916.106f, 0.0f, 0.0f,
+        0.0f, 915.931f, 0.0f,
+        959.972f, 545.488f, 1.0f
+    );
+
+    glm::mat3 DepthIntrinsics2 = glm::mat3(
+        503.263f, 0.0f, 0.0f,
+        0.0f, 503.417f, 0.0f,
+        324.749f, 336.353f, 1.0f
+    );
+    glm::mat3 RGBIntrinsics2 = glm::mat3(
+        907.692f, 0.0f, 0.0f,
+        0.0f, 907.511f, 0.0f,
+        957.761f, 551.799f, 1.0f
+    );
+
+    // Rotation and Translation matrix from depth to RGB camera
+    glm::mat3 R_Cam1 = glm::mat3(
+        0.999983f, -0.00586679f, 0.000380531f,
+        0.00587709f, 0.995844f, -0.0908823f,
+        0.000154238f, 0.090883f, 0.995862f
+    );
+    glm::vec3 T_Cam1 = glm::vec3(
+        -31.9808f / 1000.0f,
+        -2.14291f / 1000.0f,
+        4.06966f / 1000.0f
+    );
+
+    // Rotation matrix from depth to RGB camera
+    glm::mat3 R_Cam2 = glm::mat3(
+        0.999992f, -0.00382051f, 0.00112496f,
+        0.0039048f, 0.9961f, -0.0881453,
+        -0.000783808f, 0.088149f, 0.996107f
+    );
+
+    // Translation vector from depth to RGB camera (in meters)
+    glm::vec3 T_Cam2 = glm::vec3(
+        -32.0719f / 1000.0f,
+        -2.0198f / 1000.0f,
+        4.02698f / 1000.0f
+    );
 
     // Rebuild merged on demand
     auto rebuildMerged = [&]() {
@@ -360,6 +414,38 @@ void Window::mainloop(int argc, char** argv) {
             ImGuiFileDialog::Instance()->OpenDialog("ChooseDepthDlgKey1", "Choose Depth Image", ".png,.jpg,.jpeg,.tif,.tiff", config);
             openDepthDialog1 = true;
         }
+        ImGui::SameLine();
+        if (ImGui::Button("Load Fixed Path (Cloud 1)")) {
+            try {
+                PointCloudLoader::loadRgbd(
+                    cloud,
+                    fixedDepthPath1,
+                    fixedColorPath1,
+                    DepthIntrinsics1,
+                    RGBIntrinsics1,
+                    R_Cam1,
+                    T_Cam1,
+                    rgbToWorldR1,
+                    rgbToWorldT1,
+                    true
+                );
+                selectedDepthPath1 = fixedDepthPath1;
+                selectedColorPath1 = fixedColorPath1;
+
+                cudaError_t err = cudaDeviceSynchronize();
+                if (err != cudaSuccess) {
+                    std::cerr << "CUDA error after loading cloud1: " << cudaGetErrorString(err) << std::endl;
+                    cloud.initialized = false;
+                }
+                else {
+                    rebuildMerged();
+                }
+            }
+            catch (const std::exception& e) {
+                std::cerr << "Exception loading cloud1 from fixed path: " << e.what() << std::endl;
+                cloud.initialized = false;
+            }
+        }
         if (!selectedDepthPath1.empty()) ImGui::Text("Depth1: %s", selectedDepthPath1.c_str());
         if (!selectedColorPath1.empty()) ImGui::Text("Color1: %s", selectedColorPath1.c_str());
 
@@ -371,57 +457,40 @@ void Window::mainloop(int argc, char** argv) {
             ImGuiFileDialog::Instance()->OpenDialog("ChooseDepthDlgKey2", "Choose Depth Image", ".png,.jpg,.jpeg,.tif,.tiff", config);
             openDepthDialog2 = true;
         }
+        ImGui::SameLine();
+        if (ImGui::Button("Load Fixed Path (Cloud 2)")) {
+            try {
+                PointCloudLoader::loadRgbd(
+                    cloud2,
+                    fixedDepthPath2,
+                    fixedColorPath2,
+                    DepthIntrinsics2,
+                    RGBIntrinsics2,
+                    R_Cam2,
+                    T_Cam2,
+                    rgbToWorldR2,
+                    rgbToWorldT2,
+                    true
+                );
+                selectedDepthPath2 = fixedDepthPath2;
+                selectedColorPath2 = fixedColorPath2;
+
+                cudaError_t err = cudaDeviceSynchronize();
+                if (err != cudaSuccess) {
+                    std::cerr << "CUDA error after loading cloud2: " << cudaGetErrorString(err) << std::endl;
+                    cloud2.initialized = false;
+                }
+                else {
+                    rebuildMerged();
+                }
+            }
+            catch (const std::exception& e) {
+                std::cerr << "Exception loading cloud2 from fixed path: " << e.what() << std::endl;
+                cloud2.initialized = false;
+            }
+        }
         if (!selectedDepthPath2.empty()) ImGui::Text("Depth2: %s", selectedDepthPath2.c_str());
         if (!selectedColorPath2.empty()) ImGui::Text("Color2: %s", selectedColorPath2.c_str());
-
-        // Shared intrinsics (adjust to your sensors)
-        glm::mat3 DepthIntrinsics1 = glm::mat3(
-            503.272f, 0.0f, 0.0f,
-            0.0f, 503.428f, 0.0f,
-            311.493f, 341.854f, 1.0f
-        );
-        glm::mat3 RGBIntrinsics1 = glm::mat3(
-            610.737f, 0.0f, 0.0f,
-            0.0f, 610.621f, 0.0f,
-            639.815f, 363.492f, 1.0f
-        );
-
-        glm::mat3 DepthIntrinsics2 = glm::mat3(
-            504.49f, 0.0f, 0.0f,
-            0.0f, 504.607f, 0.0f,
-            326.469f, 321.175f, 1.0f
-        );
-        glm::mat3 RGBIntrinsics2 = glm::mat3(
-            609.147f, 0.0f, 0.0f,
-            0.0f, 609.155f, 0.0f,
-            633.681f, 362.512f, 1.0f
-        );
-
-        // Rotation and Translation matrix from depth to RGB camera
-        glm::mat3 R_Cam1 = glm::mat3(
-            0.999983f, -0.00586679f, 0.000380531f,
-            0.00587709f, 0.995844f, -0.0908823f,
-            0.000154238f, 0.090883f, 0.995862f
-        );
-        glm::vec3 T_Cam1 = glm::vec3(
-            -31.9808f / 1000.0f,
-            -2.14291f / 1000.0f,
-            4.06966f / 1000.0f
-        );
-
-        // Rotation matrix from depth to RGB camera
-        glm::mat3 R_Cam2 = glm::mat3(
-            0.999969f, -0.00778767f, -0.0009467f,
-            0.00764499f, 0.994429f, -0.105132,
-            0.00176016f, 0.105122f, 0.994458f
-        );
-
-        // Translation vector from depth to RGB camera (in meters)
-        glm::vec3 T_Cam2 = glm::vec3(
-            -31.9544f / 1000.0f,
-            -1.81078f / 1000.0f,
-            4.15482f / 1000.0f
-        );
 
         // Handle dialogs for Cloud 1
         if (openDepthDialog1) {

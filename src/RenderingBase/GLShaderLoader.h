@@ -57,7 +57,7 @@ private:
 
     std::vector<std::string> headers_paths;
     std::unordered_map<std::string, ShaderHeader> headers;
-    std::unordered_map<std::string, Shader*> shaders;
+    std::unordered_multimap<std::string, Shader*> shaders;
 
     ShaderHeader loadHeader(const std::string& path);
     ShaderSource loadSource(const std::string& path, const std::string& localPath, GLenum type, int loadingOrder);

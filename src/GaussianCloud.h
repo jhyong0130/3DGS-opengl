@@ -160,7 +160,7 @@ public:
 
 private:
     Shader pointShader = GLShaderLoader::load("point.vs", "point.fs");
-    Shader quadShader = GLShaderLoader::load("quadNeuS.vs", "quadNeuS.fs");
+    Shader quadShader = GLShaderLoader::load("quadNeus.vs", "quadNeus.fs");
     Shader quad_interlock_Shader = GLShaderLoader::load("quad_interlock.vs", "quad_interlock.fs");
     Shader testVisibilityShader = GLShaderLoader::load("testVisibility.cp");
     Shader computeBoundingBoxesShader = GLShaderLoader::load("computeBoundingBoxes.cp");
@@ -190,7 +190,7 @@ private:
     bool renderAsPoints = false;
     bool renderAsQuads = false;
     float scale_modifier = 1.0f;
-	float scale_neus = 0.001f;
+	float scale_neus = 10000.0f;
     float SDF_scale = 1.0f;
     bool antialiasing = false;
     float min_opacity = 0.02f;

@@ -8,7 +8,6 @@
 #include "CommonTypes.h"
 
 mat3 computeCov3D(const vec4 covX, const vec4 covY, const vec4 covZ, float mod, const mat3 viewMat) {
-    // Compute rotation matrix from quaternion
     mat3 R = mod * mat3(
         covX.x, covX.y, covX.z,
         covY.x, covY.y, covY.z,

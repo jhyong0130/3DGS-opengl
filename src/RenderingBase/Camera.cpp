@@ -89,7 +89,7 @@ void Camera::updateView(GLFWwindow *window, bool windowHovered, float scroll) {
     ImGui::Spacing();
 
 
-    vec3 up = vec3(0, -1, 0);
+    vec3 up = vec3(0, 1, 0);
     if (!freeCam) {
         if (!windowHovered) {
             if(movementsEnabled){

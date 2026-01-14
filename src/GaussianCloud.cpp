@@ -360,6 +360,33 @@ void GaussianCloud::render(Camera &camera) {
             q.end();
         }
 
+        // --- DEBUG: read back some computed bounding boxes ---
+        if (num_visible_gaussians > 0) {
+            glFinish(); // ensure compute finished
+
+            const int debug_count = num_visible_gaussians;
+            // Each bounding box is vec4(center_x, center_y, half_w, half_h) in pixels
+            std::vector<float> boxes = bounding_boxes.getAsFloats(debug_count * 4);
+
+            std::cout << "[BBox DEBUG] num_visible_gaussians = "
+                << num_visible_gaussians << ", showing " << debug_count << " boxes\n";
+
+            const int num_samples = 50;
+            const int step = std::max(1, debug_count / num_samples);
+
+            for (int i = 0; i < debug_count; i += step) {
+                int base = i * 4;
+                float cx = boxes[base + 0];
+                float cy = boxes[base + 1];
+                float hw = boxes[base + 2];
+                float hh = boxes[base + 3];
+
+                std::cout << "  ID " << i
+                    << " center=(" << cx << ", " << cy << ")"
+                    << " half_size=(" << hw << ", " << hh << ")\n";
+            }
+        }
+
         {
             auto& q = timers[OPERATIONS::PREDICT_COLORS_VISIBLE].push_back();
             q.begin();
@@ -715,7 +742,7 @@ void GaussianCloud::GUI(Camera& camera) {
     ImGui::Checkbox("Front to back blending", &front_to_back);
     ImGui::Checkbox("Software alpha-blending", &softwareBlending);
     ImGui::SliderFloat("scale_modifier", &scale_modifier, 0.001f, 10.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-	ImGui::SliderFloat("scale_neus", &scale_neus, 0.00001f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+	ImGui::SliderFloat("scale_neus", &scale_neus, 1000.0f, 100000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
     ImGui::SliderFloat("min_opacity", &min_opacity, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
 
 
@@ -1055,6 +1082,8 @@ void GaussianCloud::upsample(bool useCudaGLInterop) {
     eigen_vecs.storeData(nullptr, num_gaussians, 2 * sizeof(float), 0, useCudaGLInterop, true, true);
     predicted_colors.storeData(nullptr, num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, true, true);
 }
+
+
 
 
 

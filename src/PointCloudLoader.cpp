@@ -64,7 +64,6 @@ static void calculateDepthCovariance(const std::vector<glm::vec3>& positions,
         float s_x = (pixel_size * z) / (fx_depth * pixel_size); // simplifies to z / fx_depth
         float s_y = (pixel_size * z) / (fy_depth * pixel_size); // simplifies to z / fy_depth
         float s_z = (depth_noise_a * z - depth_noise_b);
-        s_z = s_z * s_z;
 
         float var_x = (s_x * s_x) / 4.0f;
         float var_y = (s_y * s_y) / 4.0f;
@@ -109,7 +108,7 @@ glm::vec3 computeDepthNormal(
     glm::vec3 n = glm::normalize(glm::cross(vx, vy));
 
     // Ensure normal faces the camera (positive Z)
-    if (n.z > 0) n = -n;
+    if (n.z < 0) n = -n;
 
     return n;
 }
@@ -182,40 +181,6 @@ bool print_ply_header(const char *filename) {
 
     return true;
 }
-
-
-//static std::vector<float> buildPositions(aiMesh *mesh,
-//                                         bool scaleToUnit) {
-//    uint32_t numVertices = mesh->mNumVertices;
-//
-//    std::vector<float> vertices(numVertices * 3, 0.0f);
-//    vec3 Vmin = vec3(+INFINITY);
-//    vec3 Vmax = vec3(-INFINITY);
-//
-//    for (uint32_t v = 0; v < numVertices; v++) {
-//        auto vertex = mesh->mVertices[v];
-//        vertices[3 * v + 0] = vertex.x;
-//        vertices[3 * v + 1] = vertex.y;
-//        vertices[3 * v + 2] = vertex.z;
-//
-//        vec3 u(vertex.x, vertex.y, vertex.z);
-//        Vmax = max(Vmax, u);
-//        Vmin = min(Vmin, u);
-//    }
-//
-//    if (scaleToUnit) {
-//        vec3 size = Vmax - Vmin;
-//        vec3 center = Vmin + size * 0.5f;
-//        float half_extent = std::max(std::max(size.x, size.y), size.z) * 0.5f;
-//        for (uint32_t v = 0; v < numVertices; v++) {
-//            vertices[3 * v + 0] = (vertices[3 * v + 0] - center.x) / half_extent;
-//            vertices[3 * v + 1] = (vertices[3 * v + 1] - center.y) / half_extent;
-//            vertices[3 * v + 2] = (vertices[3 * v + 2] - center.z) / half_extent;
-//        }
-//    }
-//
-//    return vertices;
-//}
 
 float sigmoid(float x){
     return 1.0f / (1.0f + exp(-x));
@@ -527,7 +492,7 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
             float depth = depth_image.at<uint16_t>(i, j) / 1000.0f;
 
             // Skip invalid depth values
-            if (depth <= 0.0f || depth > 10.0f) continue;
+            if (depth <= 0.0f || depth > 3.0f) continue;
 
             // Convert pixel coordinates to 3D point in depth camera coordinates
             float x_d = (j - CX_DEPTH) * depth / FX_DEPTH;
@@ -560,8 +525,8 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
             cv::Vec3b color = rgb_image.at<cv::Vec3b>(v_int, u_int);
 
             // Transform to world coordinates using rotation and translation
-            //glm::vec3 pos_world3 = glm::transpose(rgbToWorldR) * (point_rgb - rgbToWorldT) ;
-            glm::vec3 pos_world3 = glm::transpose(rgbToWorldR) * point_rgb + rgbToWorldT;
+            //glm::vec3 pos_world3 = glm::transpose(rgbToWorldR) * (point_rgb + rgbToWorldT) ;
+            glm::vec3 pos_world3 = rgbToWorldR * (point_rgb + rgbToWorldT);
             glm::vec4 pos_world_h = glm::vec4(pos_world3, 1.0f);
 
             // Compute normals
@@ -596,8 +561,12 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
 
     std::cout << "Generated " << dst.num_gaussians << " points from RGBD images" << std::endl;
 
-    // Store positions
+    // Store positions in open gl convention
     dst.positions_cpu = temp_positions;
+    for (int i = 0; i < dst.num_gaussians; i++) {
+        dst.positions_cpu[i].y = -dst.positions_cpu[i].y;
+        dst.positions_cpu[i].z = -dst.positions_cpu[i].z;
+    }
     dst.positions.storeData(dst.positions_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
 
     // Store normals
