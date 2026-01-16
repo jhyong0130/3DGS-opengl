@@ -93,16 +93,16 @@ public:
     float* camPos_cu;
 
 private:
-    float dist2lookPos = 3;
+    float dist2lookPos = 3000.0f;  // 3000mm = 3m initial distance
     float theta = 0;
     float phi = 0;
 
-    float nearPlane = 0.001f;
-    float farPlane = 100.0f;
+    float nearPlane = 1.0f;        // 1mm near plane
+    float farPlane = 100000.0f;    // 100m = 100000mm far plane
 
     float fovX = 0.0f;
     float fovY = (float) std::numbers::pi / 4.0f;
-    float camSpeed = 0.25f / 60.0f;
+    float camSpeed = 250.0f / 60.0f;  // ~4mm per frame at 60fps
 
     glm::mat4 projMat;
     glm::mat4 viewMat;

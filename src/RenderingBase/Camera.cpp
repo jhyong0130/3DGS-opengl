@@ -21,7 +21,7 @@ Camera::Camera() {
     theta += PI;
     camDir = -vec3(sin(theta) * cos(phi), sin(phi),
                          cos(theta) * cos(phi));
-    lookPos = vec3(0);
+    lookPos = vec3(0, 0, -1400.0f);
     camPos = -camDir * dist2lookPos + lookPos;
 
     cudaMalloc(&viewMat_cu, sizeof(float) * 16);

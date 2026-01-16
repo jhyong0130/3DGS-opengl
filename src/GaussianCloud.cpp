@@ -158,7 +158,7 @@ void GaussianCloud::prepareRender(Camera &camera, bool GT) {
         a * width / 2.0f, 0, width / 2.0f,
         0, b * height / 2.0f, height / 2.0f,
         0, 0, 1.0f));
-
+    
     glm::mat3 R_GL_TO_CV = glm::mat3(
         1, 0, 0,
         0, -1, 0,
@@ -367,24 +367,77 @@ void GaussianCloud::render(Camera &camera) {
             const int debug_count = num_visible_gaussians;
             // Each bounding box is vec4(center_x, center_y, half_w, half_h) in pixels
             std::vector<float> boxes = bounding_boxes.getAsFloats(debug_count * 4);
+            // conic_opacity is vec4(conic.x, conic.y, conic.z, opacity)
+            std::vector<float> conics = conic_opacity.getAsFloats(debug_count * 4);
+            // Read sorted gaussian indices to get original gaussian IDs
+            std::vector<int> sorted_indices_cpu(debug_count);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, sorted_gaussian_indices.getID());
+            glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, debug_count * sizeof(int), sorted_indices_cpu.data());
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-            std::cout << "[BBox DEBUG] num_visible_gaussians = "
-                << num_visible_gaussians << ", showing " << debug_count << " boxes\n";
+            // Read positions and covariances for the visible gaussians
+            std::vector<float> pos_data = positions.getAsFloats(num_gaussians * 4);
+            std::vector<float> covX_data = covariance[0].getAsFloats(num_gaussians * 4);
+            std::vector<float> covY_data = covariance[1].getAsFloats(num_gaussians * 4);
+            std::vector<float> covZ_data = covariance[2].getAsFloats(num_gaussians * 4);
+            std::vector<float> normal_data = normals.getAsFloats(num_gaussians * 4);
 
-            const int num_samples = 50;
+            std::cout << "\n[ALPHA DEBUG] num_visible_gaussians = " << num_visible_gaussians << "\n";
+            std::cout << "Camera pos: (" << camera.getPosition().x << ", " 
+                      << camera.getPosition().y << ", " << camera.getPosition().z << ")\n";
+
+            const int num_samples = 10;
             const int step = std::max(1, debug_count / num_samples);
 
-            for (int i = 0; i < debug_count; i += step) {
-                int base = i * 4;
-                float cx = boxes[base + 0];
-                float cy = boxes[base + 1];
-                float hw = boxes[base + 2];
-                float hh = boxes[base + 3];
+            for (int i = 0; i < debug_count && i < num_samples * step; i += step) {
+                int gid = sorted_indices_cpu[i]; // original gaussian ID
+                
+                // Bounding box
+                float cx = boxes[i * 4 + 0];
+                float cy = boxes[i * 4 + 1];
+                float hw = boxes[i * 4 + 2];
+                float hh = boxes[i * 4 + 3];
 
-                std::cout << "  ID " << i
-                    << " center=(" << cx << ", " << cy << ")"
-                    << " half_size=(" << hw << ", " << hh << ")\n";
+                // Conic and opacity
+                float conic_x = conics[i * 4 + 0];
+                float conic_y = conics[i * 4 + 1];
+                float conic_z = conics[i * 4 + 2];
+                float opacity = conics[i * 4 + 3];
+
+                // Position
+                float px = pos_data[gid * 4 + 0];
+                float py = pos_data[gid * 4 + 1];
+                float pz = pos_data[gid * 4 + 2];
+
+                // Normal
+                float nx = normal_data[gid * 4 + 0];
+                float ny = normal_data[gid * 4 + 1];
+                float nz = normal_data[gid * 4 + 2];
+
+                // Covariance diagonal (variance)
+                float var_x = covX_data[gid * 4 + 0];
+                float var_y = covY_data[gid * 4 + 1];
+                float var_z = covZ_data[gid * 4 + 2];
+
+                // Compute determinant of covariance matrix
+                float cov_det = covX_data[gid * 4 + 0] * (covY_data[gid * 4 + 1] * covZ_data[gid * 4 + 2] - covY_data[gid * 4 + 2] * covZ_data[gid * 4 + 1])
+                              - covX_data[gid * 4 + 1] * (covY_data[gid * 4 + 0] * covZ_data[gid * 4 + 2] - covY_data[gid * 4 + 2] * covZ_data[gid * 4 + 0])
+                              + covX_data[gid * 4 + 2] * (covY_data[gid * 4 + 0] * covZ_data[gid * 4 + 1] - covY_data[gid * 4 + 1] * covZ_data[gid * 4 + 0]);
+
+                // Compute distance from camera to gaussian
+                glm::vec3 cam_pos = camera.getPosition();
+                float dist = sqrt((px - cam_pos.x) * (px - cam_pos.x) + 
+                                  (py - cam_pos.y) * (py - cam_pos.y) + 
+                                  (pz - cam_pos.z) * (pz - cam_pos.z));
+
+                std::cout << "  [" << i << "] GaussianID=" << gid << "\n"
+                          << "    Position: (" << px << ", " << py << ", " << pz << ") dist=" << dist << " mm\n"
+                          << "    Normal: (" << nx << ", " << ny << ", " << nz << ")\n"
+                          << "    Cov diag (var): (" << var_x << ", " << var_y << ", " << var_z << ") det=" << cov_det << "\n"
+                          << "    BBox center: (" << cx << ", " << cy << ") half_size: (" << hw << ", " << hh << ")\n"
+                          << "    Conic: (" << conic_x << ", " << conic_y << ", " << conic_z << ") opacity=" << opacity << "\n";
             }
+            std::cout << std::endl;
         }
 
         {
@@ -1082,8 +1135,3 @@ void GaussianCloud::upsample(bool useCudaGLInterop) {
     eigen_vecs.storeData(nullptr, num_gaussians, 2 * sizeof(float), 0, useCudaGLInterop, true, true);
     predicted_colors.storeData(nullptr, num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, true, true);
 }
-
-
-
-
-

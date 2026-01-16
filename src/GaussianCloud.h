@@ -190,7 +190,7 @@ private:
     bool renderAsPoints = false;
     bool renderAsQuads = false;
     float scale_modifier = 1.0f;
-	float scale_neus = 10000.0f;
+	float scale_neus = 10.0f;
     float SDF_scale = 1.0f;
     bool antialiasing = false;
     float min_opacity = 0.02f;
