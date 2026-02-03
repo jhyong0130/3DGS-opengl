@@ -20,16 +20,17 @@ struct Uniforms {
     float near_plane;
     float far_plane;
     float scale_modifier;
+
     float scale_neus;
     float SDF_scale;
-
     int selected_gaussian;
     float min_opacity;
+
     float width;
     float height;
-
     float focal_x;
     float focal_y;
+
     int antialiasing;
     int front_to_back;
 

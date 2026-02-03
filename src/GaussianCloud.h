@@ -157,6 +157,13 @@ public:
     void doDelaunay();
     void update_after_delaunay();
     void upsample(bool useCudaGLInterop);
+    void exportRenderAtPose(
+        const glm::mat3& intrinsics,
+        const glm::mat3& R_cam_to_world,
+        const glm::vec3& T_cam_to_world,
+        int width, int height,
+        const std::string& outputPath,
+        bool useQuadRendering);
 
 private:
     Shader pointShader = GLShaderLoader::load("point.vs", "point.fs");
@@ -189,8 +196,8 @@ private:
     int num_visible_gaussians = 0;
     bool renderAsPoints = false;
     bool renderAsQuads = false;
-    float scale_modifier = 1.0f;
-	float scale_neus = 10000.0f;
+    float scale_modifier = 2.5f;
+	float scale_neus = 1.0f;
     float SDF_scale = 1.0f;
     bool antialiasing = false;
     float min_opacity = 0.02f;
