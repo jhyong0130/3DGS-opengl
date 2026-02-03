@@ -53,12 +53,12 @@ float compute_alpha(mat3 cov3D_inv, vec3 cam, vec3 site, float sdf_site, vec3 no
     const float lambda = dot(local_ray, normal);
     const float delta = sdf_site + dot(local_delta, normal);
 
-    float bb = b/2.0f; //+ uniforms.scale_neus * lambda * delta;
-    float cc = c/2.0f; //+ uniforms.scale_neus * delta * delta;
-    float aa = a/2.0f; //+ uniforms.scale_neus * lambda*lambda; //uniforms.scale_neus *
+    float bb = b/2.0f + uniforms.scale_neus * lambda * delta;
+    float cc = c/2.0f + uniforms.scale_neus * delta * delta;
+    float aa = a/2.0f + uniforms.scale_neus * lambda*lambda;
     
-    if (aa < 1e-12f) return 0.0f;
-    float K = (sqrt(PI)/(2.0f*sqrt(aa))); //* sqrt(uniforms.scale_neus);// * uniforms.scale_neus;
+    if (aa < 1e-6f) return 0.0f;
+    float K = (sqrt(PI)/(2.0f*sqrt(aa))) * sqrt(uniforms.scale_neus);
     float power = K * exp(bb*bb/aa - cc) * erfc_approx(bb/sqrt(aa));
     return min(1.0f, power); //lambda < 0.0 ? min(1.0, power) : 0.0;
 }
@@ -75,10 +75,6 @@ void main(void){
     vec2 ndc = (curr_pix / vec2(uniforms.width, uniforms.height)) * 2.0 - 1.0;
     vec4 unproj = inverse(uniforms.projMat) * vec4(ndc, 1.0, 1.0);
     vec3 cam_ray_cam = normalize(unproj.xyz / unproj.w);
-    
-    //vec3 cam_ray_cam = normalize(vec3((curr_pix.x - uniforms.K[2][0]) / uniforms.K[0][0],
-    //                              (curr_pix.y - uniforms.K[2][1]) / uniforms.K[1][1],
-    //                              1.0));
     
     // convert ray to world coords:
     mat3 R = mat3(uniforms.viewMat); // check convention: R should be world->camera 
@@ -101,36 +97,30 @@ void main(void){
     //vec3 local_delta = (cam - mean);
     //const float lambda = dot(cam_ray_cam, normal_cam);
     //const float delta = sdf_site + dot(local_delta, normal_cam);
-
-   //if (any(isnan(cov3D_inv[0])) || any(isnan(cov3D_inv[1])) || any(isnan(cov3D_inv[2])) || 
-   //     abs(lambda) < 1.0e-30 || lambda > 0.0f || delta < 0.0f) {
-   //     ___discard;
-   // }
+    //
+    //if (any(isnan(cov3D_inv[0])) || any(isnan(cov3D_inv[1])) || any(isnan(cov3D_inv[2])) || 
+    //     abs(lambda) < 1.0e-30 || lambda > 0.0f || delta < 0.0f) {
+    //     ___discard;
+    // }
  
     
-    // 2D Analytical Splatting
-    //const vec4 conic_opacity = uniforms.conic_opacity[InstanceID];
-    //const mat2 conic = mat2(conic_opacity.x, conic_opacity.y,
-    //                    conic_opacity.y, conic_opacity.z);
-    //const float opacity = conic_opacity.w;
-    //const float power = -0.5f * dot(local_coord, conic * local_coord);
-    //if (power < -3.0f) {
-    //    ___discard;
-    //}
-    //float alpha_gs = min(0.99f, opacity * exp(power));
+   // 2D Analytical Splatting
+   //const vec4 conic_opacity = uniforms.conic_opacity[InstanceID];
+   //const mat2 conic = mat2(conic_opacity.x, conic_opacity.y,
+   //                    conic_opacity.y, conic_opacity.z);
+   //const float opacity = conic_opacity.w;
+   //const float power = -0.5f * dot(local_coord, conic * local_coord);
+   //if (power < -3.0f) {
+   //    ___discard;
+   //}
+   //float alpha_gs = min(0.99f, opacity * exp(power));
+   
+   // calculate final alpha
+   float alpha = compute_alpha(cov3D_inv, cam, mean, sdf_site, normal_cam, cam_ray_cam); //neuS
+   //float alpha = alpha_gs; 
     
-    // calculate final alpha
-    float alpha = compute_alpha(cov3D_inv, cam, mean, sdf_site, normal_cam, cam_ray_cam); //neuS
-    //float alpha = 1.0f;
-    //float alpha = alpha_gs; 
-    
-    if (alpha < uniforms.min_opacity){
-        out_Color = vec4(1, 0, 1, 1);
-        return;
-        //___discard;
-    }
-    if (!isnan(alpha) && !isinf(alpha)) {
-        out_Color = vec4(vec3(color) * alpha, alpha);
-        //out_Color = vec4(vec3(a), 1.0f); // debug alpha
-    }
+   if (!isnan(alpha) && !isinf(alpha)) {
+       out_Color = vec4(vec3(color) * alpha, alpha);
+       //out_Color = vec4(vec3(a), 1.0f); // debug alpha
+   }
 }
