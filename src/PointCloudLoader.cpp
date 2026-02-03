@@ -47,15 +47,22 @@ static bool has_extension(const char *filename, const char *ext) {
     return strcmp(filename + i, ext) == 0;
 }
 
+struct SurfaceBasis {
+    glm::vec3 normal; // normal
+    glm::vec3 tangent; // tangent x
+    glm::vec3 bitangent; // tangent y
+};
+
 // Helper function to calculate depth-dependent covariance (all units in mm)
 static void calculateDepthCovariance(const std::vector<glm::vec3>& positions,
-    float fx_depth, float fy_depth,
+    float fx_depth, float fy_depth, std::vector<glm::vec3> tangents,   
     std::vector<glm::mat3>& covariances) {
     // Noise model parameters adjusted for mm units
     // depth_noise_a and depth_noise_b are relative to depth in mm
     const float depth_noise_a = 0.0007f;   // dimensionless coefficient
     const float depth_noise_b = 0.2f;      // in mm (was 0.0002m = 0.2mm)
     const float scale_factor = 1.0f;
+    const float pix_size = 0.0035f;
 
     covariances.resize(positions.size());
 
@@ -67,8 +74,9 @@ static void calculateDepthCovariance(const std::vector<glm::vec3>& positions,
         // simplifies to z_mm / fx_depth (in mm)
         float s_x = z_mm / fx_depth;
         float s_y = z_mm / fy_depth;
-        // s_z: depth uncertainty in mm
-        float s_z = (depth_noise_a * z_mm - depth_noise_b);
+        //float s_z = (depth_noise_a * z_mm - depth_noise_b); // s_z: depth uncertainty in mm
+		float s_z = (s_x * tangents[i].x + s_y * tangents[i].y) / 2.0f; // s_z: depth in mm, based on tangent x component
+		if (s_z <= 0.05f || isnan(s_z) || isinf(s_z)) s_z = (depth_noise_a * z_mm - depth_noise_b);
 
         // Variance in mm^2
         float var_x = (s_x * s_x) / 4.0f;
@@ -82,8 +90,8 @@ static void calculateDepthCovariance(const std::vector<glm::vec3>& positions,
         );
     }
 }
-
-glm::vec3 computeDepthNormal(
+ 
+SurfaceBasis computeDepthBasis(
     const cv::Mat& depth,
     int u, int v,
     float fx, float fy,
@@ -101,8 +109,9 @@ glm::vec3 computeDepthNormal(
     float dz_du = getDepth(u + 1, v);
     float dz_dv = getDepth(u, v + 1);
 
-    if (dz <= 0.0f || dz_du <= 0.0f || dz_dv <= 0.0f)
-        return glm::vec3(0, 0, 0);   // invalid normal
+    if (dz <= 0.0f || dz_du <= 0.0f || dz_dv <= 0.0f) {
+        return { glm::vec3(0), glm::vec3(0), glm::vec3(0) };
+    }
 
     // Convert pixels to camera coords (mm)
     glm::vec3 p((u - cx) * dz / fx, (v - cy) * dz / fy, dz);
@@ -113,11 +122,15 @@ glm::vec3 computeDepthNormal(
     glm::vec3 vy = py - p;
 
     glm::vec3 n = glm::normalize(glm::cross(vx, vy));
-
+    glm::vec3 t = vx;
+    glm::vec3 b = vy;
     // Ensure normal faces the camera (positive Z)
-    //if (n.z < 0) n = -n;
+    if (n.z < 0.0f) {
+        n = -n;
+        t = -t;
+    }
 
-    return n;
+    return { n, t, b };
 }
 
 glm::vec3 convertNormalToWorld(
@@ -492,6 +505,8 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
     std::vector<glm::vec3> temp_colors;
     std::vector<glm::vec3> depth_cam_points;
     std::vector<glm::vec4> temp_normals;
+	std::vector<glm::vec3> temp_tangents_cam;
+    std::vector<float> temp_opacities;
 
     for (int i = 0; i < h_d; i++) {
         for (int j = 0; j < w_d; j++) {
@@ -499,7 +514,7 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
             float depth_mm = static_cast<float>(depth_image.at<uint16_t>(i, j));
 
             // Skip invalid depth values (keep same max range, in mm)
-            if (depth_mm <= 0.0f || depth_mm > 2000.0f) continue;
+            if (depth_mm <= 0.0f || depth_mm > 1500.0f) continue;
 
             // Convert pixel coordinates to 3D point in depth camera coordinates (mm)
             float x_d_mm = (j - CX_DEPTH) * depth_mm / FX_DEPTH;
@@ -524,6 +539,9 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
             // Check if projection is within RGB image bounds
             if (u < 0 || u >= w_rgb || v < 0 || v >= h_rgb) continue;
 
+			// Remove 100 pixels border to avoid invalid colors
+			if (u < 400 || u >= w_rgb - 400 || v < 0 || v >= h_rgb - 100) continue;
+
             // Clip to RGB image bounds
             int u_int = std::max(0, std::min(w_rgb - 1, (int)round(u)));
             int v_int = std::max(0, std::min(h_rgb - 1, (int)round(v)));
@@ -532,29 +550,43 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
             cv::Vec3b color = rgb_image.at<cv::Vec3b>(v_int, u_int);
 
             // Transform to world coordinates using rotation and translation (mm)
-            glm::vec3 pos_world_mm = rgbToWorldR * (point_rgb_mm + rgbToWorldT);
+            glm::vec3 pos_world_mm = rgbToWorldR * point_rgb_mm + rgbToWorldT;
 
             // Store output positions in mm
             glm::vec4 pos_world_h = glm::vec4(pos_world_mm, 1.0f);
 
+            float opacity;
+            // Compute opacities (1.0f until 1m then decay to 0 at 2m)
+            if (depth_mm <= 1000.0f) {
+                opacity = 1.0f;
+            }
+            else {
+                float lambda = -log(0.01f) / (2.0f - 1.0f); // Decay rate
+                opacity = exp(-lambda * (depth_mm - 1000.0f));
+            }
+
             // Compute normals from depth (mm)
-            glm::vec3 normal_cam = computeDepthNormal(
+            SurfaceBasis basis = computeDepthBasis(
                 depth_image, j, i,
                 FX_DEPTH, FY_DEPTH,
                 CX_DEPTH, CY_DEPTH
             );
+            glm::vec3 t = basis.tangent;
+            glm::vec3 n = basis.normal;
 
-            if (normal_cam == glm::vec3(0) || std::isnan(normal_cam.x) || std::isnan(normal_cam.y) || std::isnan(normal_cam.z)) continue; // skip invalid normals
+            if (n == glm::vec3(0) || std::isnan(n.x) || std::isnan(n.y) || std::isnan(n.z)) continue; // skip invalid normals
 
             glm::vec3 normal_world = convertNormalToWorld(
-                normal_cam,
+                n,
                 R,                // depth ¨ RGB rotation
                 rgbToWorldR       // RGB ¨ world rotation
             );
             glm::vec4 normal_world_h = glm::vec4(normal_world, 0.0f);
 
             temp_positions.push_back(pos_world_h);
+            temp_opacities.push_back(opacity);
             temp_normals.push_back(normal_world_h);
+			temp_tangents_cam.push_back(glm::vec(t));
             temp_colors.push_back(glm::vec3(color[2] / 255.0f, color[1] / 255.0f, color[0] / 255.0f));
             depth_cam_points.push_back(point_depth_mm); // Store depth camera points (mm) for covariance calculation
         }
@@ -587,6 +619,7 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
 
     // Initialize opacities to 1.0 for valid points
     dst.opacities_cpu = std::vector<float>(dst.num_gaussians, 1.0f);
+    //dst.opacities_cpu = temp_opacities;
     dst.opacities.storeData(dst.opacities_cpu.data(), dst.num_gaussians, 1 * sizeof(float), 0, useCudaGLInterop, false, true);
 
     // Store RGB colors as spherical harmonics coefficients (DC component only)
@@ -609,7 +642,7 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
 
     // Calculate depth-dependent covariance matrices
     std::vector<glm::mat3> covariance_matrices;
-    calculateDepthCovariance(depth_cam_points, FX_DEPTH, FY_DEPTH, covariance_matrices);
+    calculateDepthCovariance(depth_cam_points, FX_DEPTH, FY_DEPTH, temp_tangents_cam, covariance_matrices);
 
     std::cout << "Calculated depth-dependent covariances for " << covariance_matrices.size() << " points" << std::endl;
 

@@ -259,29 +259,41 @@ void Window::mainloop(int argc, char** argv) {
     std::string selectedColorPath2;
 
     // Fixed paths for RGBD images
-    const std::string fixedDepthPath1 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap3\\cam0\\depth\\frame_000040.png";
-    const std::string fixedColorPath1 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap3\\cam0\\color\\frame_000040.png";
-    const std::string fixedDepthPath2 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap3\\cam2\\depth\\frame_000040.png";
-    const std::string fixedColorPath2 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap3\\cam2\\color\\frame_000040.png";
+    const std::string fixedDepthPath1 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap7\\cam0\\depth\\frame_000040.png";
+    const std::string fixedColorPath1 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap7\\cam0\\color\\frame_000040.png";
+    const std::string fixedDepthPath2 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap7\\cam2\\depth\\frame_000040.png";
+    const std::string fixedColorPath2 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap7\\cam2\\color\\frame_000040.png";
 
     glm::mat3 rgbToWorldR1 = {
-        0.996125f, -0.0056446f, -0.0877693f,
-        -0.000283777f, 0.997727f, -0.0673864f,
-        0.0879502f, 0.0671501f, 0.993859f
+    0.993817f,  -0.0116581f, -0.110415f,
+   -0.00283812f, 0.99148f,  -0.13023f,
+    0.110993f,   0.129738f,  0.985317f
     };
     glm::vec3 rgbToWorldT1 = {
-        371.63f, 506.15f, -1055.67f
+        295.42f, 494.203f, -955.485f
     };
+    rgbToWorldT1 = rgbToWorldR1 * rgbToWorldT1;
+
     glm::mat3 rgbToWorldR2 = {
-        -0.997824f, 0.00993194f, 0.0651862f,
-        0.0148109f, 0.997089f, 0.0747952f,
-        -0.0642536f, 0.0755979f, -0.995066f
+       -0.99623f,   0.0142209f,  0.0855825f,
+        0.0153407f, 0.999805f,   0.0124408f,
+       -0.0853889f, 0.0137068f, -0.996253f
     };
     glm::vec3 rgbToWorldT2 = {
-        -131.825f, 465.174f, -1155.9f
+        -58.2916f, 467.947f, -1257.7f
     };
+    rgbToWorldT2 = rgbToWorldR2 * rgbToWorldT2;
 
-    // Shared intrinsics (adjust to your sensors)
+    glm::mat3 rgbToWorldR3 = {
+        0.80692f,   -0.0238006f, -0.590182f,
+        0.0173368f,  0.999712f,  -0.0166124f,
+        0.590407f,   0.00317296f, 0.807099f
+    };
+    glm::vec3 rgbToWorldT3 = {
+        234.917f, 447.515f, -1427.77f
+    };
+    rgbToWorldT3 = rgbToWorldR3 * rgbToWorldT3;
+
     glm::mat3 DepthIntrinsics1 = glm::mat3(
         503.272f, 0.0f, 0.0f,
         0.0f, 503.428f, 0.0f,
@@ -304,32 +316,34 @@ void Window::mainloop(int argc, char** argv) {
         638.341f, 367.7f, 1.0f
     );
 
-    // Rotation and Translation matrix from depth to RGB camera
+    glm::mat3 RGBIntrinsics3 = glm::mat3(
+        609.147f, 0.0f, 0.0f,
+        0.0f, 609.155f, 0.0f,
+        633.681f, 362.512f, 1.0f
+    );
+
     glm::mat3 R_Cam1 = glm::mat3(
         0.999983f, -0.00586679f, 0.000380531f,
         0.00587709f, 0.995844f, -0.0908823f,
         0.000154238f, 0.090883f, 0.995862f
     );
-    // Translation vector from depth to RGB camera (in mm)
     glm::vec3 T_Cam1 = glm::vec3(
-        -31.9808f,
-        -2.14291f,
-        4.06966f
+        -31.9808f, -2.14291f, 4.06966f
     );
 
-    // Rotation matrix from depth to RGB camera
     glm::mat3 R_Cam2 = glm::mat3(
         0.999992f, -0.00382051f, 0.00112496f,
-        0.0039048f, 0.9961f, -0.0881453,
+        0.0039048f, 0.9961f, -0.0881453f,
         -0.000783808f, 0.088149f, 0.996107f
     );
-
-    // Translation vector from depth to RGB camera (in mm)
     glm::vec3 T_Cam2 = glm::vec3(
-        -32.0719f,
-        -2.0198f,
-        4.02698f
+        -32.0719f, -2.0198f, 4.02698f
     );
+
+    // Export settings
+    int exportWidth = 1280;
+    int exportHeight = 720;
+    std::string exportPath = "C:\\Users\\b25.jun\\Desktop\\dataset\\results";
 
     // Rebuild merged on demand
     auto rebuildMerged = [&]() {
@@ -492,6 +506,49 @@ void Window::mainloop(int argc, char** argv) {
         }
         if (!selectedDepthPath2.empty()) ImGui::Text("Depth2: %s", selectedDepthPath2.c_str());
         if (!selectedColorPath2.empty()) ImGui::Text("Color2: %s", selectedColorPath2.c_str());
+
+        // ============================================
+        // Export Section for Ground Truth Evaluation
+        // ============================================
+        ImGui::Separator();
+        ImGui::Text("Export Rendered Image (Camera 3)");
+        
+        if (ImGui::Button("Export Render at Camera 3 Pose")) {
+            if (merged.initialized) {
+                try {
+                    std::string exportQuadPath = exportPath + "\\quad_render.png";
+                    std::string exportPointCloudPath = exportPath + "\\pointcloud_render.png";
+                    
+                    merged.exportRenderAtPose(
+                        RGBIntrinsics3,
+                        rgbToWorldR3,
+						rgbToWorldT3,
+                        exportWidth,
+                        exportHeight,
+                        exportQuadPath,
+                        true
+                    );
+                    
+                    merged.exportRenderAtPose(
+                        RGBIntrinsics3,
+                        rgbToWorldR3,
+                        rgbToWorldT3,
+                        exportWidth,
+                        exportHeight,
+                        exportPointCloudPath,
+                        false
+                    );
+
+                    std::cout << "Export completed: " << exportPath << std::endl;
+                }
+                catch (const std::exception& e) {
+                    std::cerr << "Export failed: " << e.what() << std::endl;
+                }
+            }
+            else {
+                std::cerr << "No merged cloud to export. Load clouds first." << std::endl;
+            }
+        }
 
         // Handle dialogs for Cloud 1
         if (openDepthDialog1) {
