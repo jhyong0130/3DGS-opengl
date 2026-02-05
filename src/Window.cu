@@ -259,41 +259,32 @@ void Window::mainloop(int argc, char** argv) {
     std::string selectedColorPath2;
 
     // Fixed paths for RGBD images
-    const std::string fixedDepthPath1 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap7\\cam0\\depth\\frame_000040.png";
-    const std::string fixedColorPath1 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap7\\cam0\\color\\frame_000040.png";
-    const std::string fixedDepthPath2 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap7\\cam2\\depth\\frame_000040.png";
-    const std::string fixedColorPath2 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap7\\cam2\\color\\frame_000040.png";
+    const std::string fixedDepthPath1 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap3\\cam0\\depth\\frame_000040.png";
+    const std::string fixedColorPath1 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap3\\cam0\\color\\frame_000040.png";
+    const std::string fixedDepthPath2 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap3\\cam2\\depth\\frame_000040.png";
+    const std::string fixedColorPath2 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap3\\cam2\\color\\frame_000040.png";
 
     glm::mat3 rgbToWorldR1 = {
-    0.993817f,  -0.0116581f, -0.110415f,
-   -0.00283812f, 0.99148f,  -0.13023f,
-    0.110993f,   0.129738f,  0.985317f
+     0.996125f, -0.0056446f, -0.0877693f,
+     -0.000283777f, 0.997727f, -0.0673864f,
+     0.0879502f, 0.0671501f, 0.993859f
     };
     glm::vec3 rgbToWorldT1 = {
-        295.42f, 494.203f, -955.485f
+        371.63f, 506.15f, -1055.67f
     };
-    rgbToWorldT1 = rgbToWorldR1 * rgbToWorldT1;
+    rgbToWorldT1 = rgbToWorldR1 * rgbToWorldT1; // Camera coordinates to world
 
     glm::mat3 rgbToWorldR2 = {
-       -0.99623f,   0.0142209f,  0.0855825f,
-        0.0153407f, 0.999805f,   0.0124408f,
-       -0.0853889f, 0.0137068f, -0.996253f
+        -0.997824f, 0.00993194f, 0.0651862f,
+        0.0148109f, 0.997089f, 0.0747952f,
+        -0.0642536f, 0.0755979f, -0.995066f
     };
     glm::vec3 rgbToWorldT2 = {
-        -58.2916f, 467.947f, -1257.7f
+        -131.825f, 465.174f, -1155.9f
     };
-    rgbToWorldT2 = rgbToWorldR2 * rgbToWorldT2;
+    rgbToWorldT2 = rgbToWorldR2 * rgbToWorldT2; // Camera coordinates to world
 
-    glm::mat3 rgbToWorldR3 = {
-        0.80692f,   -0.0238006f, -0.590182f,
-        0.0173368f,  0.999712f,  -0.0166124f,
-        0.590407f,   0.00317296f, 0.807099f
-    };
-    glm::vec3 rgbToWorldT3 = {
-        234.917f, 447.515f, -1427.77f
-    };
-    rgbToWorldT3 = rgbToWorldR3 * rgbToWorldT3;
-
+    // Shared intrinsics (adjust to your sensors)
     glm::mat3 DepthIntrinsics1 = glm::mat3(
         503.272f, 0.0f, 0.0f,
         0.0f, 503.428f, 0.0f,
@@ -316,29 +307,56 @@ void Window::mainloop(int argc, char** argv) {
         638.341f, 367.7f, 1.0f
     );
 
+    // Rotation and Translation matrix from depth to RGB camera
+    glm::mat3 R_Cam1 = glm::mat3(
+        0.999983f, -0.00586679f, 0.000380531f,
+        0.00587709f, 0.995844f, -0.0908823f,
+        0.000154238f, 0.090883f, 0.995862f
+    );
+    // Translation vector from depth to RGB camera (in mm)
+    glm::vec3 T_Cam1 = glm::vec3(
+        -31.9808f,
+        -2.14291f,
+        4.06966f
+    );
+
+    // Rotation matrix from depth to RGB camera
+    glm::mat3 R_Cam2 = glm::mat3(
+        0.999992f, -0.00382051f, 0.00112496f,
+        0.0039048f, 0.9961f, -0.0881453,
+        -0.000783808f, 0.088149f, 0.996107f
+    );
+
+    // Translation vector from depth to RGB camera (in mm)
+    glm::vec3 T_Cam2 = glm::vec3(
+        -32.0719f,
+        -2.0198f,
+        4.02698f
+    );
+
+    // ============================================
+    // Third camera parameters for ground truth export
+    // ============================================
+    // Third camera RGB intrinsics (replace with your actual values)
     glm::mat3 RGBIntrinsics3 = glm::mat3(
         609.147f, 0.0f, 0.0f,
         0.0f, 609.155f, 0.0f,
         633.681f, 362.512f, 1.0f
     );
 
-    glm::mat3 R_Cam1 = glm::mat3(
-        0.999983f, -0.00586679f, 0.000380531f,
-        0.00587709f, 0.995844f, -0.0908823f,
-        0.000154238f, 0.090883f, 0.995862f
-    );
-    glm::vec3 T_Cam1 = glm::vec3(
-        -31.9808f, -2.14291f, 4.06966f
+    // Third camera extrinsics: world-to-camera rotation and translation
+    glm::mat3 rgbToWorldR3 = glm::mat3(
+        0.818993f, 0.0140402f, -0.573631f,
+        0.016921f, 0.998675f, 0.0486023f,
+        0.573554f, -0.0495114f, 0.81767f
     );
 
-    glm::mat3 R_Cam2 = glm::mat3(
-        0.999992f, -0.00382051f, 0.00112496f,
-        0.0039048f, 0.9961f, -0.0881453f,
-        -0.000783808f, 0.088149f, 0.996107f
+    glm::vec3 rgbToWorldT3 = glm::vec3(
+        351.823f,
+        448.301f,
+        -1477.75f
     );
-    glm::vec3 T_Cam2 = glm::vec3(
-        -32.0719f, -2.0198f, 4.02698f
-    );
+    rgbToWorldT3 = rgbToWorldR3 * rgbToWorldT3;
 
     // Export settings
     int exportWidth = 1280;
@@ -461,6 +479,39 @@ void Window::mainloop(int argc, char** argv) {
                 cloud.initialized = false;
             }
         }
+        ImGui::SameLine();
+        if (ImGui::Button("Load as Mesh (Cloud 1)")) {
+            try {
+                PointCloudLoader::loadRgbdAsMesh(
+                    cloud,
+                    fixedDepthPath1,
+                    fixedColorPath1,
+                    DepthIntrinsics1,
+                    RGBIntrinsics1,
+                    R_Cam1,
+                    T_Cam1,
+                    rgbToWorldR1,
+                    rgbToWorldT1,
+                    true
+                );
+                selectedDepthPath1 = fixedDepthPath1;
+                selectedColorPath1 = fixedColorPath1;
+
+                cudaError_t err = cudaDeviceSynchronize();
+                if (err != cudaSuccess) {
+                    std::cerr << "CUDA error after loading mesh cloud1: " << cudaGetErrorString(err) << std::endl;
+                    cloud.hasMesh = false;
+                }
+                else {
+                    std::cout << "Mesh loaded for Cloud 1: " << cloud.num_mesh_vertices << " vertices, " 
+                              << cloud.num_mesh_indices / 3 << " triangles" << std::endl;
+                }
+            }
+            catch (const std::exception& e) {
+                std::cerr << "Exception loading mesh cloud1 from fixed path: " << e.what() << std::endl;
+                cloud.hasMesh = false;
+            }
+        }
         if (!selectedDepthPath1.empty()) ImGui::Text("Depth1: %s", selectedDepthPath1.c_str());
         if (!selectedColorPath1.empty()) ImGui::Text("Color1: %s", selectedColorPath1.c_str());
 
@@ -502,6 +553,39 @@ void Window::mainloop(int argc, char** argv) {
             catch (const std::exception& e) {
                 std::cerr << "Exception loading cloud2 from fixed path: " << e.what() << std::endl;
                 cloud2.initialized = false;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Load as Mesh (Cloud 2)")) {
+            try {
+                PointCloudLoader::loadRgbdAsMesh(
+                    cloud2,
+                    fixedDepthPath2,
+                    fixedColorPath2,
+                    DepthIntrinsics2,
+                    RGBIntrinsics2,
+                    R_Cam2,
+                    T_Cam2,
+                    rgbToWorldR2,
+                    rgbToWorldT2,
+                    true
+                );
+                selectedDepthPath2 = fixedDepthPath2;
+                selectedColorPath2 = fixedColorPath2;
+
+                cudaError_t err = cudaDeviceSynchronize();
+                if (err != cudaSuccess) {
+                    std::cerr << "CUDA error after loading mesh cloud2: " << cudaGetErrorString(err) << std::endl;
+                    cloud2.hasMesh = false;
+                }
+                else {
+                    std::cout << "Mesh loaded for Cloud 2: " << cloud2.num_mesh_vertices << " vertices, " 
+                              << cloud2.num_mesh_indices / 3 << " triangles" << std::endl;
+                }
+            }
+            catch (const std::exception& e) {
+                std::cerr << "Exception loading mesh cloud2 from fixed path: " << e.what() << std::endl;
+                cloud2.hasMesh = false;
             }
         }
         if (!selectedDepthPath2.empty()) ImGui::Text("Depth2: %s", selectedDepthPath2.c_str());
@@ -547,6 +631,35 @@ void Window::mainloop(int argc, char** argv) {
             }
             else {
                 std::cerr << "No merged cloud to export. Load clouds first." << std::endl;
+            }
+        }
+
+        // Export mesh render at Camera 3 pose
+        if (cloud.hasMesh || cloud2.hasMesh) {
+            if (ImGui::Button("Export Mesh Render at Camera 3 Pose")) {
+                try {
+                    // Export combined mesh render (both clouds in one image)
+                    std::string meshExportPath = exportPath + "\\mesh_render_combined.png";
+                    
+                    // Use cloud's export function but we need a combined approach
+                    // For now, export individually - TODO: combine into single render
+                    if (cloud.hasMesh && cloud2.hasMesh) {
+                        // Export combined render using a helper that renders both
+                        cloud.exportCombinedMeshRenderAtPose(
+                            cloud2,
+                            RGBIntrinsics3,
+                            rgbToWorldR3,
+                            rgbToWorldT3,
+                            exportWidth,
+                            exportHeight,
+                            meshExportPath
+                        );
+                    }
+                    std::cout << "Mesh export completed: " << meshExportPath << std::endl;
+                }
+                catch (const std::exception& e) {
+                    std::cerr << "Mesh export failed: " << e.what() << std::endl;
+                }
             }
         }
 
@@ -735,6 +848,37 @@ void Window::mainloop(int argc, char** argv) {
             }
             catch (const std::exception& e) {
                 std::cerr << "Exception during rendering: " << e.what() << std::endl;
+            }
+        }
+        
+        // Render individual cloud meshes (triangle mesh from RGB-D)
+        if (cloud.hasMesh) {
+            try {
+                cloud.render(camera);
+                err = glGetError();
+                if (err == GL_CONTEXT_LOST) {
+                    std::cerr << "GL_CONTEXT_LOST after cloud.render()!" << std::endl;
+                    break;
+                }
+                cloud.GUI(camera);
+            }
+            catch (const std::exception& e) {
+                std::cerr << "Exception during cloud mesh rendering: " << e.what() << std::endl;
+            }
+        }
+        
+        if (cloud2.hasMesh) {
+            try {
+                cloud2.render(camera);
+                err = glGetError();
+                if (err == GL_CONTEXT_LOST) {
+                    std::cerr << "GL_CONTEXT_LOST after cloud2.render()!" << std::endl;
+                    break;
+                }
+                cloud2.GUI(camera);
+            }
+            catch (const std::exception& e) {
+                std::cerr << "Exception during cloud2 mesh rendering: " << e.what() << std::endl;
             }
         }
 

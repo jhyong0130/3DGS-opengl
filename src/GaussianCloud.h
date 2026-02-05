@@ -85,6 +85,16 @@ public:
     GLBuffer sorted_depths;
     GLBuffer sorted_gaussian_indices;
 
+    // Triangle mesh buffers (for RGB-D depth grid triangulation)
+    GLBuffer mesh_vertices;   // vec4 positions
+    GLBuffer mesh_normals;    // vec4 normals
+    GLBuffer mesh_colors;     // vec4 colors (RGBA)
+    GLBuffer mesh_indices;    // uint indices for triangles
+    int num_mesh_vertices = 0;
+    int num_mesh_indices = 0;
+    bool hasMesh = false;
+    GLuint meshVAO = 0;
+
     GLuint GT_tex;
     GLuint64 GT_imageHandle = 0;
 
@@ -140,6 +150,11 @@ public:
             glDeleteTextures(1, &GT_tex);
             GT_tex = 0;
         }
+        
+        if (meshVAO) {
+            glDeleteVertexArrays(1, &meshVAO);
+            meshVAO = 0;
+        }
     }
 
 
@@ -157,18 +172,29 @@ public:
     void doDelaunay();
     void update_after_delaunay();
     void upsample(bool useCudaGLInterop);
-    void exportRenderAtPose(
+    
+    // Export triangle mesh render at a specific camera pose
+    void exportCombinedMeshRenderAtPose(
+        GaussianCloud& other,
         const glm::mat3& intrinsics,
         const glm::mat3& R_cam_to_world,
         const glm::vec3& T_cam_to_world,
         int width, int height,
+        const std::string& outputPath);
+
+    void exportRenderAtPose(
+        const glm::mat3& intrinsics,       // Camera intrinsic matrix K (OpenCV style)
+        const glm::mat3& R_cam_to_world,   // Rotation: camera to world
+        const glm::vec3& T_cam_to_world,   // Translation: camera position in world
+        int width, int height,
         const std::string& outputPath,
-        bool useQuadRendering);
+		bool useQuadRendering);             // true = quads, false = point cloud
 
 private:
     Shader pointShader = GLShaderLoader::load("point.vs", "point.fs");
     Shader quadShader = GLShaderLoader::load("quadNeus.vs", "quadNeus.fs");
     Shader quad_interlock_Shader = GLShaderLoader::load("quad_interlock.vs", "quad_interlock.fs");
+    Shader triangleMeshShader = GLShaderLoader::load("triangleMesh.vs", "triangleMesh.fs");
     Shader testVisibilityShader = GLShaderLoader::load("testVisibility.cp");
     Shader computeBoundingBoxesShader = GLShaderLoader::load("computeBoundingBoxes.cp");
     Shader predictColorsShader = GLShaderLoader::load("predict_colors.cp");
@@ -196,6 +222,9 @@ private:
     int num_visible_gaussians = 0;
     bool renderAsPoints = false;
     bool renderAsQuads = false;
+    bool renderAsMesh = false;
+    bool renderAsTriangleMesh = false;
+    float meshPointSize = 1.0f;
     float scale_modifier = 2.5f;
 	float scale_neus = 1.0f;
     float SDF_scale = 1.0f;
@@ -215,6 +244,8 @@ private:
     enum OPERATIONS{
         PREDICT_COLORS_ALL,
         DRAW_AS_POINTS,
+        DRAW_AS_MESH,
+        DRAW_AS_TRIANGLE_MESH,
         TEST_VISIBILITY,
         SORT,
         COMPUTE_BOUNDING_BOXES,

@@ -358,7 +358,7 @@ void PointCloudLoader::loadRdm(GaussianCloud& dst, int nb_pts, bool useCudaGLInt
     //    dst.rotations_cpu[i] = glm::vec4(0.0f); // apply exponential activation
     //    dst.rotations_cpu[i].w = 1.0f;
     //}
-    //dst.rotations.storeData(dst.rotations_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    //dst.rotations.storeData(dst.rotations_cpu.data(), dst.num.gaussians, 4*sizeof(float), 0, useCudaGLInterop, false, true);
 
     dst.sdf_cpu = std::vector<float>(dst.num_gaussians);
     dst.opacities_cpu = std::vector<float>(dst.num_gaussians);
@@ -405,7 +405,7 @@ void PointCloudLoader::loadRdm(GaussianCloud& dst, int nb_pts, bool useCudaGLInt
     /*for (int i = 0; i < 3; i++) {
         dst.covariance[i].storeData(nullptr, dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, true, true);
     }*/
-    //dst.sdf.storeData(nullptr, dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, true, true);
+    //dst.sdf.storeData(nullptr, dst.num.gaussians, sizeof(float), 0, useCudaGLInterop, true, true);
 
     dst.visible_gaussians_counter.storeData(nullptr, 1, sizeof(int), 0, useCudaGLInterop, false, true);
     dst.gaussians_depths.storeData(nullptr, dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, true, true);
@@ -727,6 +727,209 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
     dst.initialized = true;
 
     std::cout << "Finished loading RGBD point cloud." << std::endl;
+}
+
+
+void PointCloudLoader::loadRgbdAsMesh(GaussianCloud& dst, const std::string& depth_path,
+    const std::string& rgb_path,
+    const glm::mat3& depth_intrinsics,
+    const glm::mat3& rgb_intrinsics,
+    const glm::mat3& R,
+    const glm::vec3& T,
+    const glm::mat3& rgbToWorldR,
+    const glm::vec3& rgbToWorldT,
+    bool useCudaGLInterop
+) {
+    dst.hasMesh = false;
+    dst.num_mesh_vertices = 0;
+    dst.num_mesh_indices = 0;
+
+    std::cout << "Loading RGBD as triangle mesh from depth: " << depth_path
+        << " and RGB: " << rgb_path << " ..." << std::endl;
+
+    // Load depth and RGB images using OpenCV
+    cv::Mat depth_image = cv::imread(depth_path, cv::IMREAD_ANYDEPTH);
+    cv::Mat rgb_image = cv::imread(rgb_path, cv::IMREAD_COLOR);
+
+    if (depth_image.empty() || rgb_image.empty()) {
+        std::cerr << "Error: Could not load images!" << std::endl;
+        return;
+    }
+
+    // Extract camera intrinsics (in pixels)
+    float FX_DEPTH = depth_intrinsics[0][0];
+    float FY_DEPTH = depth_intrinsics[1][1];
+    float CX_DEPTH = depth_intrinsics[2][0];
+    float CY_DEPTH = depth_intrinsics[2][1];
+
+    float FX_RGB = rgb_intrinsics[0][0];
+    float FY_RGB = rgb_intrinsics[1][1];
+    float CX_RGB = rgb_intrinsics[2][0];
+    float CY_RGB = rgb_intrinsics[2][1];
+
+    int h_d = depth_image.rows;
+    int w_d = depth_image.cols;
+    int h_rgb = rgb_image.rows;
+    int w_rgb = rgb_image.cols;
+
+    // Create a 2D array to store vertex indices at each depth pixel
+    // -1 means no valid vertex at that location
+    std::vector<int> vertex_grid(h_d * w_d, -1);
+
+    // First pass: create vertices for valid depth pixels
+    std::vector<glm::vec4> vertices;
+    std::vector<glm::vec4> normals;
+    std::vector<glm::vec4> colors;
+
+    const float MAX_DEPTH_MM = 1500.0f;
+    const float DEPTH_DISCONTINUITY_THRESHOLD_MM = 20.0f; // 20mm threshold for edge detection
+
+    for (int i = 0; i < h_d; i++) {
+        for (int j = 0; j < w_d; j++) {
+            float depth_mm = static_cast<float>(depth_image.at<uint16_t>(i, j));
+
+            // Skip invalid depth values
+            if (depth_mm <= 0.0f || depth_mm > MAX_DEPTH_MM) continue;
+
+            // Convert pixel coordinates to 3D point in depth camera coordinates (mm)
+            float x_d_mm = (j - CX_DEPTH) * depth_mm / FX_DEPTH;
+            float y_d_mm = (i - CY_DEPTH) * depth_mm / FY_DEPTH;
+            float z_d_mm = depth_mm;
+
+            // Transform to RGB camera coordinates using R and T (all in mm)
+            glm::vec3 point_depth_mm = glm::vec3(x_d_mm, y_d_mm, z_d_mm);
+            glm::vec3 point_rgb_mm = R * point_depth_mm + T;
+
+            float x_rgb_mm = point_rgb_mm.x;
+            float y_rgb_mm = point_rgb_mm.y;
+            float z_rgb_mm = point_rgb_mm.z;
+
+            // Skip points behind the RGB camera
+            if (z_rgb_mm <= 0.0f) continue;
+
+            // Project to RGB image coordinates using pinhole camera model
+            float u = FX_RGB * (x_rgb_mm / z_rgb_mm) + CX_RGB;
+            float v = FY_RGB * (y_rgb_mm / z_rgb_mm) + CY_RGB;
+
+            // Check if projection is within RGB image bounds with border
+            if (u < 100 || u >= w_rgb - 100 || v < 50 || v >= h_rgb - 50) continue;
+
+            // Get RGB color
+            int u_int = std::max(0, std::min(w_rgb - 1, (int)round(u)));
+            int v_int = std::max(0, std::min(h_rgb - 1, (int)round(v)));
+            cv::Vec3b color = rgb_image.at<cv::Vec3b>(v_int, u_int);
+
+            // Transform to world coordinates
+            glm::vec3 pos_world_mm = rgbToWorldR * point_rgb_mm + rgbToWorldT;
+
+            // Compute normal from depth gradient
+            SurfaceBasis basis = computeDepthBasis(
+                depth_image, j, i,
+                FX_DEPTH, FY_DEPTH,
+                CX_DEPTH, CY_DEPTH
+            );
+            glm::vec3 n = basis.normal;
+
+            if (n == glm::vec3(0) || std::isnan(n.x) || std::isnan(n.y) || std::isnan(n.z)) {
+                n = glm::vec3(0, 0, 1); // Default normal
+            }
+
+            glm::vec3 normal_world = convertNormalToWorld(n, R, rgbToWorldR);
+
+            // Store vertex index in grid
+            int vertex_idx = (int)vertices.size();
+            vertex_grid[i * w_d + j] = vertex_idx;
+
+            // Store in OpenGL convention (flip Y and Z)
+            glm::vec4 pos_gl = glm::vec4(pos_world_mm.x, -pos_world_mm.y, -pos_world_mm.z, 1.0f);
+            glm::vec4 norm_gl = glm::vec4(normal_world.x, -normal_world.y, -normal_world.z, 0.0f);
+
+            vertices.push_back(pos_gl);
+            normals.push_back(norm_gl);
+            colors.push_back(glm::vec4(color[2] / 255.0f, color[1] / 255.0f, color[0] / 255.0f, 1.0f));
+        }
+    }
+
+    if (vertices.empty()) {
+        std::cerr << "Error: No valid vertices generated from RGBD images!" << std::endl;
+        return;
+    }
+
+    std::cout << "Generated " << vertices.size() << " vertices" << std::endl;
+
+    // Second pass: create triangles from the depth grid
+    // For each 2x2 quad of valid pixels, create 2 triangles
+    std::vector<unsigned int> indices;
+
+    auto getDepthAt = [&](int i, int j) -> float {
+        if (i < 0 || i >= h_d || j < 0 || j >= w_d) return -1.0f;
+        return static_cast<float>(depth_image.at<uint16_t>(i, j));
+    };
+
+    for (int i = 0; i < h_d - 1; i++) {
+        for (int j = 0; j < w_d - 1; j++) {
+            // Get vertex indices for the quad corners
+            int idx00 = vertex_grid[i * w_d + j];           // top-left
+            int idx10 = vertex_grid[i * w_d + (j + 1)];     // top-right
+            int idx01 = vertex_grid[(i + 1) * w_d + j];     // bottom-left
+            int idx11 = vertex_grid[(i + 1) * w_d + (j + 1)]; // bottom-right
+
+            // Skip if any vertex is invalid
+            if (idx00 < 0 || idx10 < 0 || idx01 < 0 || idx11 < 0) continue;
+
+            // Get depths for edge discontinuity check
+            float d00 = getDepthAt(i, j);
+            float d10 = getDepthAt(i, j + 1);
+            float d01 = getDepthAt(i + 1, j);
+            float d11 = getDepthAt(i + 1, j + 1);
+
+            // Check for depth discontinuities (edges)
+            float maxDiff = std::max({
+                std::abs(d00 - d10),
+                std::abs(d00 - d01),
+                std::abs(d10 - d11),
+                std::abs(d01 - d11),
+                std::abs(d00 - d11),
+                std::abs(d10 - d01)
+            });
+
+            // Skip triangles that span depth discontinuities
+            if (maxDiff > DEPTH_DISCONTINUITY_THRESHOLD_MM) continue;
+
+            // Create two triangles for this quad
+            // Triangle 1: top-left, bottom-left, top-right
+            indices.push_back(idx00);
+            indices.push_back(idx01);
+            indices.push_back(idx10);
+
+            // Triangle 2: top-right, bottom-left, bottom-right
+            indices.push_back(idx10);
+            indices.push_back(idx01);
+            indices.push_back(idx11);
+        }
+    }
+
+    if (indices.empty()) {
+        std::cerr << "Error: No triangles generated!" << std::endl;
+        return;
+    }
+
+    std::cout << "Generated " << indices.size() / 3 << " triangles" << std::endl;
+
+    // Upload mesh data to GPU
+    dst.num_mesh_vertices = (int)vertices.size();
+    dst.num_mesh_indices = (int)indices.size();
+
+    dst.mesh_vertices.storeData(vertices.data(), dst.num_mesh_vertices, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    dst.mesh_normals.storeData(normals.data(), dst.num_mesh_vertices, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    dst.mesh_colors.storeData(colors.data(), dst.num_mesh_vertices, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+    dst.mesh_indices.storeData(indices.data(), dst.num_mesh_indices, sizeof(unsigned int), 0, useCudaGLInterop, false, true);
+
+    dst.hasMesh = true;
+
+    std::cout << "Finished loading RGBD as triangle mesh: " 
+              << dst.num_mesh_vertices << " vertices, " 
+              << dst.num_mesh_indices / 3 << " triangles" << std::endl;
 }
 
 

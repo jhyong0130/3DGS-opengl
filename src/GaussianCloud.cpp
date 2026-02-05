@@ -158,7 +158,7 @@ void GaussianCloud::prepareRender(Camera &camera, bool GT) {
         a * width / 2.0f, 0, width / 2.0f,
         0, b * height / 2.0f, height / 2.0f,
         0, 0, 1.0f));
-    
+
     glm::mat3 R_GL_TO_CV = glm::mat3(
         1, 0, 0,
         0, -1, 0,
@@ -310,10 +310,13 @@ void GaussianCloud::loadGTImage(unsigned char* GT_image, int cols, int rows) {
 
 void GaussianCloud::render(Camera &camera) {
 
-    prepareRender(camera);
-    checkGLResetAndError("after preparing render");
+    // Only call prepareRender if we have gaussians (needed for gaussian-based rendering)
+    if (initialized && num_gaussians > 0) {
+        prepareRender(camera);
+        checkGLResetAndError("after preparing render");
+    }
 
-    if(renderAsQuads){
+    if(renderAsQuads && initialized && num_gaussians > 0){
         fbo.bind();
         glViewport(0, 0, fbo.getWidth(), fbo.getHeight());
         // need to clear with alpha = 1 for front to back blending
@@ -500,7 +503,7 @@ void GaussianCloud::render(Camera &camera) {
         }
     }
 
-    if(renderAsPoints) {
+    if(renderAsPoints && initialized && num_gaussians > 0) {
         glEnable(GL_DEPTH_TEST);
 
         {
@@ -532,6 +535,71 @@ void GaussianCloud::render(Camera &camera) {
         checkGLResetAndError("after predicting colors");
     }
 
+    // Triangle mesh rendering (proper triangulated mesh from RGB-D)
+    // This can render even without gaussians
+    if(renderAsTriangleMesh && hasMesh && num_mesh_indices > 0) {
+        // Need to set up uniforms for mesh rendering
+        if (!initialized || num_gaussians == 0) {
+            // Minimal uniform setup for mesh-only rendering
+            const float width = (float)camera.getFramebufferSize().x;
+            const float height = (float)camera.getFramebufferSize().y;
+            
+            Uniforms uniforms_cpu = {};
+            uniforms_cpu.viewMat = camera.getViewMatrix();
+            uniforms_cpu.projMat = camera.getProjectionMatrix();
+            uniforms_cpu.camera_pos = glm::vec4(camera.getPosition(), 1.0f);
+            uniforms_cpu.near_plane = camera.getNearPlane();
+            uniforms_cpu.far_plane = camera.getFarPlane();
+            uniforms_cpu.width = width;
+            uniforms_cpu.height = height;
+            
+            uniforms.storeData(&uniforms_cpu, 1, sizeof(Uniforms));
+            glBindBufferBase(GL_UNIFORM_BUFFER, 0, uniforms.getID());
+        }
+        
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+
+        {
+            auto& q = timers[OPERATIONS::DRAW_AS_TRIANGLE_MESH].push_back();
+            q.begin();
+            
+            triangleMeshShader.start();
+            
+            glBindVertexArray(meshVAO);
+            
+            // Position attribute (location = 0)
+            glBindBuffer(GL_ARRAY_BUFFER, mesh_vertices.getID());
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+            
+            // Normal attribute (location = 1)
+            glBindBuffer(GL_ARRAY_BUFFER, mesh_normals.getID());
+            glEnableVertexAttribArray(1);
+            glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+            
+            // Color attribute (location = 2)
+            glBindBuffer(GL_ARRAY_BUFFER, mesh_colors.getID());
+            glEnableVertexAttribArray(2);
+            glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+            
+            // Bind index buffer and draw
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh_indices.getID());
+            glDrawElements(GL_TRIANGLES, num_mesh_indices, GL_UNSIGNED_INT, (void*)0);
+            
+            glDisableVertexAttribArray(0);
+            glDisableVertexAttribArray(1);
+            glDisableVertexAttribArray(2);
+            glBindVertexArray(0);
+            
+            triangleMeshShader.stop();
+            q.end();
+        }
+        checkGLResetAndError("after rendering triangle mesh");
+
+        glDisable(GL_CULL_FACE);
+    }
 }
 
 void GaussianCloud::forward(Camera& camera, int cols, int rows) {
@@ -745,7 +813,7 @@ void GaussianCloud::backward(Camera& camera, int cols, int rows) {
         cudaMemset(dLoss_sh_coeffs[1], 0, 16 * num_gaussians * sizeof(float));
         cudaMemset(dLoss_sh_coeffs[2], 0, 16 * num_gaussians * sizeof(float));
         cudaMemset(dLoss_SDF, 0, num_gaussians*sizeof(float));
-            
+
         bwd.backprop(positions, sh_coeffs[0], sh_coeffs[1], sh_coeffs[2], covariance[0], covariance[1], covariance[2], sdf,
             dLoss_dpredicted_colors, dLoss_dconic_opacity, gaussians_indices, sorted_gaussian_indices,
             camera.camPos_cu, dLoss_sh_coeffs[0], dLoss_sh_coeffs[1], dLoss_sh_coeffs[2], dLoss_SDF,
@@ -780,120 +848,152 @@ void GaussianCloud::initShaders() {
     quad_interlock_bwd_Shader.init_uniforms({});
     predictColorsShader.init_uniforms({});
     predictColorsForAllShader.init_uniforms({});
+    triangleMeshShader.init_uniforms({});
 
     counter.storeData(nullptr, 1, sizeof(int), GL_MAP_READ_BIT | GL_CLIENT_STORAGE_BIT, false, true, true);
+    
+    // Create VAO for triangle mesh rendering
+    if (meshVAO == 0) {
+        glGenVertexArrays(1, &meshVAO);
+    }
 }
 
 void GaussianCloud::GUI(Camera& camera) {
     ImGui::PushID(this);
-    const float frac = num_visible_gaussians / float(num_gaussians) * 100.0f;
-    ImGui::Text("There are %d currently visible gaussians (%.1f%%).", num_visible_gaussians, frac);
+    
+    // Show gaussian info only if initialized
+    if (initialized && num_gaussians > 0) {
+        const float frac = num_visible_gaussians / float(num_gaussians) * 100.0f;
+        ImGui::Text("There are %d currently visible gaussians (%.1f%%).", num_visible_gaussians, frac);
 
-    ImGui::Checkbox("Render as points", &renderAsPoints);
-    ImGui::Checkbox("Render as quads", &renderAsQuads);
-    ImGui::Checkbox("Antialiasing", &antialiasing);
-    ImGui::Checkbox("Front to back blending", &front_to_back);
-    ImGui::Checkbox("Software alpha-blending", &softwareBlending);
-    ImGui::SliderFloat("scale_modifier", &scale_modifier, 0.001f, 10.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-	ImGui::SliderFloat("scale_neus", &scale_neus, 1.0f, 1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-    ImGui::SliderFloat("min_opacity", &min_opacity, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-
-
-    if(selected_gaussian >= 0 && selected_gaussian < num_gaussians){
-        ImGui::Text("Position: %.3f %.3f %.3f %.3f", positions_cpu[selected_gaussian].x, positions_cpu[selected_gaussian].y, positions_cpu[selected_gaussian].z, positions_cpu[selected_gaussian].w);
-        ImGui::Text("Scale: %.3f %.3f %.3f %.3f", scales_cpu[selected_gaussian].x, scales_cpu[selected_gaussian].y, scales_cpu[selected_gaussian].z, scales_cpu[selected_gaussian].w);
-        ImGui::Text("Rotation: %.3f %.3f %.3f %.3f", rotations_cpu[selected_gaussian].x, rotations_cpu[selected_gaussian].y, rotations_cpu[selected_gaussian].z, rotations_cpu[selected_gaussian].w);
-        ImGui::Text("Opacity: %.3f", opacities_cpu[selected_gaussian]);
+        ImGui::Checkbox("Render as points", &renderAsPoints);
+        ImGui::Checkbox("Render as quads", &renderAsQuads);
     }
-
-    if(ImGui::TreeNode("Timers")){
-        if(renderAsPoints){
-            ImGui::Text("Point rendering:");
-            ImGui::Text("Predict colors: %.3fms", timers[OPERATIONS::PREDICT_COLORS_ALL].getLastResult() * 1.0E-6);
-            ImGui::Text("Draw points: %.3fms", timers[OPERATIONS::DRAW_AS_POINTS].getLastResult() * 1.0E-6);
-            ImGui::Separator();
+    
+    // Show mesh checkbox if mesh data is available
+    if (hasMesh) {
+        ImGui::Checkbox("Render as triangle mesh", &renderAsTriangleMesh);
+        if (renderAsTriangleMesh) {
+            ImGui::Text("Mesh: %d vertices, %d triangles", num_mesh_vertices, num_mesh_indices / 3);
         }
-        if(renderAsQuads){
-            ImGui::Text("Quad rendering:");
-            ImGui::Text("Test visibility: %.3fms", timers[OPERATIONS::TEST_VISIBILITY].getLastResult() * 1.0E-6);
-            ImGui::Text("Sort: %.3fms", timers[OPERATIONS::SORT].getLastResult() * 1.0E-6);
-            ImGui::Text("Compute bounding boxes: %.3fms", timers[OPERATIONS::COMPUTE_BOUNDING_BOXES].getLastResult() * 1.0E-6);
-            ImGui::Text("Predict colors: %.3fms", timers[OPERATIONS::PREDICT_COLORS_VISIBLE].getLastResult() * 1.0E-6);
-            ImGui::Text("Draw quads: %.3fms", timers[OPERATIONS::DRAW_AS_QUADS].getLastResult() * 1.0E-6);
-            ImGui::Separator();
-        }
-        ImGui::Text("CVT optimization: %.3d", nbrIter);
-        ImGui::Text("Compute KNN: %.3fms", timers[OPERATIONS::KNN].getLastResult() * 1.0E-6);
-        ImGui::Text("Update CVT: %.3fms", timers[OPERATIONS::CVT_UPDATE].getLastResult() * 1.0E-6);
-        ImGui::Text("Update Delaunay adjacencies: %.3fms", timers[OPERATIONS::DELAUNAY_UPDATE].getLastResult() * 1.0E-6);
-        ImGui::Text("thresh_vals[0]: %.3f", thresh_vals[0]);
-        ImGui::Text("thresh_vals[1]: %.3f", thresh_vals[1]);
-        ImGui::Separator();
-
-        ImGui::Text("Photo optimization: %.3d", nbrOptimIter);
-        ImGui::Text("Backprop: %.3fms", timers[OPERATIONS::BWD].getLastResult() * 1.0E-6);
-        ImGui::Separator();
-
-        ImGui::TreePop();
     }
+    
+    if (initialized && num_gaussians > 0) {
+        ImGui::Checkbox("Antialiasing", &antialiasing);
+        ImGui::Checkbox("Front to back blending", &front_to_back);
+        ImGui::Checkbox("Software alpha-blending", &softwareBlending);
+        ImGui::SliderFloat("scale_modifier", &scale_modifier, 0.001f, 10.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+        ImGui::SliderFloat("scale_neus", &scale_neus, 1.0f, 1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+        ImGui::SliderFloat("min_opacity", &min_opacity, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
 
-    ImGui::Text("Rendering Info:");
-    ImGui::Text("Visible Gaussians: %d / %d", num_visible_gaussians, num_gaussians);
 
-    // Show covariance statistics
-    if (ImGui::CollapsingHeader("Covariance Debug")) {
-        static int sample_idx = 0;
-        static bool cov_loaded = false;
-        static float covX[4] = { 0, 0, 0, 0 };
-        static float covY[4] = { 0, 0, 0, 0 };
-        static float covZ[4] = { 0, 0, 0, 0 };
-        ImGui::SliderInt("Sample Index", &sample_idx, 0, num_gaussians - 1);
+        if(selected_gaussian >= 0 && selected_gaussian < num_gaussians){
+            ImGui::Text("Position: %.3f %.3f %.3f %.3f", positions_cpu[selected_gaussian].x, positions_cpu[selected_gaussian].y, positions_cpu[selected_gaussian].z, positions_cpu[selected_gaussian].w);
+            ImGui::Text("Scale: %.3f %.3f %.3f %.3f", scales_cpu[selected_gaussian].x, scales_cpu[selected_gaussian].y, scales_cpu[selected_gaussian].z, scales_cpu[selected_gaussian].w);
+            ImGui::Text("Rotation: %.3f %.3f %.3f %.3f", rotations_cpu[selected_gaussian].x, rotations_cpu[selected_gaussian].y, rotations_cpu[selected_gaussian].z, rotations_cpu[selected_gaussian].w);
+            ImGui::Text("Opacity: %.3f", opacities_cpu[selected_gaussian]);
+        }
 
-        if (sample_idx < num_gaussians && !positions_cpu.empty()) {
-            ImGui::Text("Position: (%.3f, %.3f, %.3f)",
-                positions_cpu[sample_idx].x,
-                positions_cpu[sample_idx].y,
-                positions_cpu[sample_idx].z);
-            ImGui::Text("Depth (z): %.3f", positions_cpu[sample_idx].z);
-            ImGui::Text("Opacity: %.3f", opacities_cpu[sample_idx]);
-
-            // Read covariance matrix from GPU
-            if (ImGui::Button("Read Covariance")) {
-                glFinish(); // Ensure GPU operations are complete
-
-                // Read entire buffer (or at least up to sample_idx + 1)
-                int elements_to_read = (sample_idx + 1) * 4; // 4 floats per element
-                auto covX_all = covariance[0].getAsFloats(elements_to_read);
-                auto covY_all = covariance[1].getAsFloats(elements_to_read);
-                auto covZ_all = covariance[2].getAsFloats(elements_to_read);
-
-                // Extract the values for the selected gaussian
-                int offset = sample_idx * 4;
-                covX[0] = covX_all[offset];
-                covX[1] = covX_all[offset + 1];
-                covX[2] = covX_all[offset + 2];
-                covX[3] = covX_all[offset + 3];
-
-                covY[0] = covY_all[offset];
-                covY[1] = covY_all[offset + 1];
-                covY[2] = covY_all[offset + 2];
-                covY[3] = covY_all[offset + 3];
-
-                covZ[0] = covZ_all[offset];
-                covZ[1] = covZ_all[offset + 1];
-                covZ[2] = covZ_all[offset + 2];
-                covZ[3] = covZ_all[offset + 3];
-
-                cov_loaded = true;
+        if(ImGui::TreeNode("Timers")){
+            if(renderAsPoints){
+                ImGui::Text("Point rendering:");
+                ImGui::Text("Predict colors: %.3fms", timers[OPERATIONS::PREDICT_COLORS_ALL].getLastResult() * 1.0E-6);
+                ImGui::Text("Draw points: %.3fms", timers[OPERATIONS::DRAW_AS_POINTS].getLastResult() * 1.0E-6);
+                ImGui::Separator();
             }
+            if(renderAsMesh){
+                ImGui::Text("Mesh rendering (geometry shader):");
+                ImGui::Text("Predict colors: %.3fms", timers[OPERATIONS::PREDICT_COLORS_ALL].getLastResult() * 1.0E-6);
+                ImGui::Text("Draw mesh: %.3fms", timers[OPERATIONS::DRAW_AS_MESH].getLastResult() * 1.0E-6);
+                ImGui::Separator();
+            }
+            if(renderAsTriangleMesh && hasMesh){
+                ImGui::Text("Triangle mesh rendering:");
+                ImGui::Text("Draw triangles: %.3fms", timers[OPERATIONS::DRAW_AS_TRIANGLE_MESH].getLastResult() * 1.0E-6);
+                ImGui::Separator();
+            }
+            if(renderAsQuads){
+                ImGui::Text("Quad rendering:");
+                ImGui::Text("Test visibility: %.3fms", timers[OPERATIONS::TEST_VISIBILITY].getLastResult() * 1.0E-6);
+                ImGui::Text("Sort: %.3fms", timers[OPERATIONS::SORT].getLastResult() * 1.0E-6);
+                ImGui::Text("Compute bounding boxes: %.3fms", timers[OPERATIONS::COMPUTE_BOUNDING_BOXES].getLastResult() * 1.0E-6);
+                ImGui::Text("Predict colors: %.3fms", timers[OPERATIONS::PREDICT_COLORS_VISIBLE].getLastResult() * 1.0E-6);
+                ImGui::Text("Draw quads: %.3fms", timers[OPERATIONS::DRAW_AS_QUADS].getLastResult() * 1.0E-6);
+                ImGui::Separator();
+            }
+            ImGui::Text("CVT optimization: %.3d", nbrIter);
+            ImGui::Text("Compute KNN: %.3fms", timers[OPERATIONS::KNN].getLastResult() * 1.0E-6);
+            ImGui::Text("Update CVT: %.3fms", timers[OPERATIONS::CVT_UPDATE].getLastResult() * 1.0E-6);
+            ImGui::Text("Update Delaunay adjacencies: %.3fms", timers[OPERATIONS::DELAUNAY_UPDATE].getLastResult() * 1.0E-6);
+            ImGui::Text("thresh_vals[0]: %.3f", thresh_vals[0]);
+            ImGui::Text("thresh_vals[1]: %.3f", thresh_vals[1]);
+            ImGui::Separator();
 
-            // Display covariance data if it has been loaded
-            if (cov_loaded) {
-                ImGui::Separator(); 
-                ImGui::Text("Covariance Matrix:");
-                ImGui::Text("  [%.6f, %.6f, %.6f]", covX[0], covX[1], covX[2]);
-                ImGui::Text("  [%.6f, %.6f, %.6f]", covY[0], covY[1], covY[2]);
-                ImGui::Text("  [%.6f, %.6f, %.6f]", covZ[0], covZ[1], covZ[2]);
+            ImGui::Text("Photo optimization: %.3d", nbrOptimIter);
+            ImGui::Text("Backprop: %.3fms", timers[OPERATIONS::BWD].getLastResult() * 1.0E-6);
+            ImGui::Separator();
+
+            ImGui::TreePop();
+        }
+
+        ImGui::Text("Rendering Info:");
+        ImGui::Text("Visible Gaussians: %d / %d", num_visible_gaussians, num_gaussians);
+
+        // Show covariance statistics
+        if (ImGui::CollapsingHeader("Covariance Debug")) {
+            static int sample_idx = 0;
+            static bool cov_loaded = false;
+            static float covX[4] = { 0, 0, 0, 0 };
+            static float covY[4] = { 0, 0, 0, 0 };
+            static float covZ[4] = { 0, 0, 0, 0 };
+            ImGui::SliderInt("Sample Index", &sample_idx, 0, num_gaussians - 1);
+
+            if (sample_idx < num_gaussians && !positions_cpu.empty()) {
+                ImGui::Text("Position: (%.3f, %.3f, %.3f)",
+                    positions_cpu[sample_idx].x,
+                    positions_cpu[sample_idx].y,
+                    positions_cpu[sample_idx].z);
+                ImGui::Text("Depth (z): %.3f", positions_cpu[sample_idx].z);
+                ImGui::Text("Opacity: %.3f", opacities_cpu[sample_idx]);
+
+                // Read covariance matrix from GPU
+                if (ImGui::Button("Read Covariance")) {
+                    glFinish(); // Ensure GPU operations are complete
+
+                    // Read entire buffer (or at least up to sample_idx + 1)
+                    int elements_to_read = (sample_idx + 1) * 4; // 4 floats per element
+                    auto covX_all = covariance[0].getAsFloats(elements_to_read);
+                    auto covY_all = covariance[1].getAsFloats(elements_to_read);
+                    auto covZ_all = covariance[2].getAsFloats(elements_to_read);
+
+                    // Extract the values for the selected gaussian
+                    int offset = sample_idx * 4;
+                    covX[0] = covX_all[offset];
+                    covX[1] = covX_all[offset + 1];
+                    covX[2] = covX_all[offset + 2];
+                    covX[3] = covX_all[offset + 3];
+
+                    covY[0] = covY_all[offset];
+                    covY[1] = covY_all[offset + 1];
+                    covY[2] = covY_all[offset + 2];
+                    covY[3] = covY_all[offset + 3];
+
+                    covZ[0] = covZ_all[offset];
+                    covZ[1] = covZ_all[offset + 1];
+                    covZ[2] = covZ_all[offset + 2];
+                    covZ[3] = covZ_all[offset + 3];
+
+                    cov_loaded = true;
+                }
+
+                // Display covariance data if it has been loaded
+                if (cov_loaded) {
+                    ImGui::Separator();
+                    ImGui::Text("Covariance Matrix:");
+                    ImGui::Text("  [%.6f, %.6f, %.6f]", covX[0], covX[1], covX[2]);
+                    ImGui::Text("  [%.6f, %.6f, %.6f]", covY[0], covY[1], covY[2]);
+                    ImGui::Text("  [%.6f, %.6f, %.6f]", covZ[0], covZ[1], covZ[2]);
+                }
             }
         }
     }
@@ -1206,209 +1306,266 @@ void GaussianCloud::exportRenderAtPose(
         }
         std::cout << std::endl;
     }
-    
+
     // Compute camera position from view matrix for verification
     glm::mat3 R_from_view = glm::mat3(viewMatrix);
     glm::vec3 t_from_view = glm::vec3(viewMatrix[3]);
     glm::vec3 camPos = -glm::transpose(R_from_view) * t_from_view;
-    
+
     std::cout << "Camera pos (extracted): " << camPos.x << ", " << camPos.y << ", " << camPos.z << std::endl;
-    
+
+    // Create FBO for offscreen rendering
     FBO exportFbo;
     exportFbo.init(width, height);
-    exportFbo.createAttachment(GL_COLOR_ATTACHMENT0, GL_RGBA16F, GL_RGBA, GL_FLOAT);
-    
-    // Use renderbuffer for depth - doesn't need CUDA interop
+    exportFbo.createAttachment(GL_COLOR_ATTACHMENT0, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
+
+    // Create depth renderbuffer
     GLuint depthRbo;
     glGenRenderbuffers(1, &depthRbo);
     glBindRenderbuffer(GL_RENDERBUFFER, depthRbo);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
     glBindRenderbuffer(GL_RENDERBUFFER, 0);
     glNamedFramebufferRenderbuffer(exportFbo.getID(), GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthRbo);
-    
+
     exportFbo.drawBuffersAllAttachments();
     if (!exportFbo.checkComplete()) {
         std::cerr << "Failed to create export FBO" << std::endl;
         glDeleteRenderbuffers(1, &depthRbo);
         return;
     }
-    
+
+    // Bind FBO and render
     exportFbo.bind();
     glViewport(0, 0, width, height);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    
-    // Reset visible counter
-    const int zero = 0;
-    visible_gaussians_counter.storeData(&zero, 1, sizeof(int), 0, false, false, true);
-    
-    // Build uniforms manually
-    glm::mat3 R_uni = glm::mat3(viewMatrix);
-    glm::vec3 T_uni = glm::vec3(viewMatrix[3]);
-    
-    float a = projMat[0][0];
-    float b = projMat[1][1];
-    
-    glm::mat3 K_uni = glm::transpose(glm::mat3(
-        a * width / 2.0f, 0, width / 2.0f,
-        0, b * height / 2.0f, height / 2.0f,
-        0, 0, 1.0f));
-    
-    glm::mat3 R_GL_TO_CV = glm::mat3(
-        1, 0, 0,
-        0, -1, 0,
-        0, 0, -1);
-    
-    R_uni = R_GL_TO_CV * R_uni;
-    T_uni = R_GL_TO_CV * T_uni;
-    
+
+    // Setup uniforms for mesh rendering
+    // Note: triangleMesh.fs uses hardcoded lighting, so we only need view/proj matrices
     Uniforms uniforms_cpu = {};
     uniforms_cpu.viewMat = viewMatrix;
     uniforms_cpu.projMat = projMat;
     uniforms_cpu.camera_pos = glm::vec4(camPos, 1.0f);
-    uniforms_cpu.K = glm::mat4(K_uni);
-    uniforms_cpu.R = glm::mat4(R_uni);
-    uniforms_cpu.T = glm::vec4(T_uni, 0.0f);
-    uniforms_cpu.num_gaussians = num_gaussians;
     uniforms_cpu.near_plane = nearPlane;
     uniforms_cpu.far_plane = farPlane;
-    uniforms_cpu.scale_modifier = scale_modifier;
-    uniforms_cpu.scale_neus = scale_neus;
-    uniforms_cpu.selected_gaussian = -1;
-    uniforms_cpu.min_opacity = min_opacity;
-    uniforms_cpu.width = width;
-    uniforms_cpu.height = height;
-    uniforms_cpu.focal_x = fx;
-    uniforms_cpu.focal_y = fy;
-    uniforms_cpu.antialiasing = int(antialiasing);
-    uniforms_cpu.front_to_back = int(front_to_back);
-    uniforms_cpu.SDF_scale = SDF_scale;
-    
-    // Buffer pointers
-    uniforms_cpu.positions = reinterpret_cast<glm::vec4*>(positions.getGLptr());
-    uniforms_cpu.normals = reinterpret_cast<glm::vec4*>(normals.getGLptr());
-    uniforms_cpu.covX = reinterpret_cast<glm::vec4*>(covariance[0].getGLptr());
-    uniforms_cpu.covY = reinterpret_cast<glm::vec4*>(covariance[1].getGLptr());
-    uniforms_cpu.covZ = reinterpret_cast<glm::vec4*>(covariance[2].getGLptr());
-    uniforms_cpu.sdf = reinterpret_cast<float*>(sdf.getGLptr());
-    uniforms_cpu.sh_coeffs_red = reinterpret_cast<float*>(sh_coeffs[0].getGLptr());
-    uniforms_cpu.sh_coeffs_green = reinterpret_cast<float*>(sh_coeffs[1].getGLptr());
-    uniforms_cpu.sh_coeffs_blue = reinterpret_cast<float*>(sh_coeffs[2].getGLptr());
-    uniforms_cpu.visible_gaussians_counter = reinterpret_cast<int*>(visible_gaussians_counter.getGLptr());
-    uniforms_cpu.gaussians_depth = reinterpret_cast<float*>(gaussians_depths.getGLptr());
-    uniforms_cpu.gaussians_indices = reinterpret_cast<int*>(gaussians_indices.getGLptr());
-    uniforms_cpu.sorted_depths = reinterpret_cast<float*>(sorted_depths.getGLptr());
-    uniforms_cpu.sorted_gaussian_indices = reinterpret_cast<int*>(sorted_gaussian_indices.getGLptr());
-    uniforms_cpu.bounding_boxes = reinterpret_cast<glm::vec4*>(bounding_boxes.getGLptr());
-    uniforms_cpu.conic_opacity = reinterpret_cast<glm::vec4*>(conic_opacity.getGLptr());
-    uniforms_cpu.eigen_vecs = reinterpret_cast<glm::vec2*>(eigen_vecs.getGLptr());
-    uniforms_cpu.predicted_colors = reinterpret_cast<glm::vec4*>(predicted_colors.getGLptr());
-    uniforms_cpu.dLoss_dpredicted_colors = reinterpret_cast<f16vec4*>(dLoss_dpredicted_colors.getGLptr());
-    uniforms_cpu.dLoss_dconic_opacity = reinterpret_cast<f16vec4*>(dLoss_dconic_opacity.getGLptr());
-    uniforms_cpu.ground_truth_image = 0;
-    uniforms_cpu.accumulated_image_fwd = 0;
-    
+    uniforms_cpu.width = (float)width;
+    uniforms_cpu.height = (float)height;
+
     uniforms.storeData(&uniforms_cpu, 1, sizeof(Uniforms));
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, uniforms.getID());
-    
-    if (useQuadRendering) {
-        // === QUAD RENDERING ===
-        glEnable(GL_BLEND);
-        glBlendEquation(GL_FUNC_ADD);
-        glBlendFuncSeparate(GL_DST_ALPHA, GL_ONE, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
-        glDisable(GL_CULL_FACE);
-        glDisable(GL_DEPTH_TEST);
-        
-        // Test visibility
-        testVisibilityShader.start();
-        glDispatchCompute((num_gaussians + 127) / 128, 1, 1);
-        glMemoryBarrier(GL_ALL_BARRIER_BITS);
-        testVisibilityShader.stop();
-        glCopyNamedBufferSubData(visible_gaussians_counter.getID(), counter.getID(), 0, 0, sizeof(int));
-        
-        num_visible_gaussians = *(int*)glMapNamedBuffer(counter.getID(), GL_READ_ONLY);
-        glUnmapNamedBuffer(counter.getID());
-        
-        std::cout << "Export (Quads): " << num_visible_gaussians << " / " << num_gaussians << " visible" << std::endl;
-        
-        if (num_visible_gaussians == 0) {
-            std::cerr << "WARNING: No visible gaussians!" << std::endl;
-            exportFbo.unbind();
-            return;
-        }
-        
-        // Sort by depth
-        sort.sort(gaussians_depths, sorted_depths, gaussians_indices, sorted_gaussian_indices, num_visible_gaussians);
-        
-        // Compute bounding boxes
-        computeBoundingBoxesShader.start();
-        glDispatchCompute((num_visible_gaussians + 127) / 128, 1, 1);
-        glMemoryBarrier(GL_ALL_BARRIER_BITS);
-        computeBoundingBoxesShader.stop();
-        
-        // Predict colors for visible gaussians
-        predictColorsShader.start();
-        glDispatchCompute((num_visible_gaussians + 7) / 8, 1, 1);
-        glMemoryBarrier(GL_ALL_BARRIER_BITS);
-        predictColorsShader.stop();
-        
-        // Draw quads
-        auto& s = softwareBlending ? quad_interlock_Shader : quadShader;
-        s.start();
-        VAO vao;
-        vao.bind();
-        glMemoryBarrier(GL_ALL_BARRIER_BITS);
-        glDrawArrays(GL_TRIANGLES, 0, num_visible_gaussians * 6);
-        glMemoryBarrier(GL_ALL_BARRIER_BITS);
-        vao.unbind();
-        s.stop();
-        
-        glEnable(GL_CULL_FACE);
-        glDisable(GL_BLEND);
-    }
-    else {
-        // === POINT CLOUD RENDERING ===
-        glEnable(GL_DEPTH_TEST);
-        glDisable(GL_BLEND);
-        
-        // Predict colors for all gaussians
-        predictColorsForAllShader.start();
-        glDispatchCompute((num_gaussians + 7) / 8, 1, 1);
-        glMemoryBarrier(GL_ALL_BARRIER_BITS);
-        predictColorsForAllShader.stop();
-        
-        std::cout << "Export (Points): rendering " << num_gaussians << " points" << std::endl;
-        
-        // Draw as point cloud
-        glEnable(GL_PROGRAM_POINT_SIZE);
-        pointShader.start();
-        VAO vao;
-        vao.bind();
-        glDrawArrays(GL_POINTS, 0, num_gaussians);
-        vao.unbind();
-        pointShader.stop();
-        glDisable(GL_PROGRAM_POINT_SIZE);
-    }
-    
+
+    // Render mesh
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+
+    triangleMeshShader.start();
+
+    glBindVertexArray(meshVAO);
+
+    // Position attribute (location = 0)
+    glBindBuffer(GL_ARRAY_BUFFER, mesh_vertices.getID());
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+
+    // Normal attribute (location = 1)
+    glBindBuffer(GL_ARRAY_BUFFER, mesh_normals.getID());
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+
+    // Color attribute (location = 2)
+    glBindBuffer(GL_ARRAY_BUFFER, mesh_colors.getID());
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh_indices.getID());
+    glDrawElements(GL_TRIANGLES, num_mesh_indices, GL_UNSIGNED_INT, (void*)0);
+
+    glDisableVertexAttribArray(0);
+    glDisableVertexAttribArray(1);
+    glDisableVertexAttribArray(2);
+    glBindVertexArray(0);
+
+    triangleMeshShader.stop();
+
+    glDisable(GL_CULL_FACE);
     glFinish();
-    
-    // Read back
-    std::vector<float> pixels_float(width * height * 4);
-    glBindTexture(GL_TEXTURE_2D, exportFbo.getAttachment(GL_COLOR_ATTACHMENT0)->getID());
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, pixels_float.data());
-    glBindTexture(GL_TEXTURE_2D, 0);
-    
-    exportFbo.unbind();
-    
+
+    // Read back pixels using OpenCV
     std::vector<unsigned char> pixels(width * height * 4);
-    for (int i = 0; i < width * height * 4; i++) {
-        pixels[i] = static_cast<unsigned char>(glm::clamp(pixels_float[i] * 255.0f, 0.0f, 255.0f));
-    }
+    glBindTexture(GL_TEXTURE_2D, exportFbo.getAttachment(GL_COLOR_ATTACHMENT0)->getID());
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    exportFbo.unbind();
+    glDeleteRenderbuffers(1, &depthRbo);
+
+    // Convert to OpenCV Mat and save
+    cv::Mat image(height, width, CV_8UC4, pixels.data());
+    cv::cvtColor(image, image, cv::COLOR_RGBA2BGR);
+    cv::flip(image, image, 0);  // Flip vertically (OpenGL origin is bottom-left)
+
+    cv::imwrite(outputPath, image);
+    std::cout << "Exported render to: " << outputPath << std::endl;
+}
+
+// Export combined mesh render (this cloud + another cloud) at a specific camera pose
+void GaussianCloud::exportCombinedMeshRenderAtPose(
+    GaussianCloud& other,
+    const glm::mat3& intrinsics,
+    const glm::mat3& R_cam_to_world,
+    const glm::vec3& T_cam_to_world,
+    int width, int height,
+    const std::string& outputPath)
+{
+    std::cout << "=== Export Combined Mesh Render at Pose ===" << std::endl;
+    std::cout << "Resolution: " << width << "x" << height << std::endl;
+    std::cout << "Mesh 1: " << num_mesh_vertices << " vertices, " << num_mesh_indices / 3 << " triangles" << std::endl;
+    std::cout << "Mesh 2: " << other.num_mesh_vertices << " vertices, " << other.num_mesh_indices / 3 << " triangles" << std::endl;
     
+    float fx = intrinsics[0][0];
+    float fy = intrinsics[1][1];
+    float cx = intrinsics[2][0];
+    float cy = intrinsics[2][1];
+    
+    float nearPlane = 10.0f;
+    float farPlane = 5000.0f;
+    
+    glm::mat4 projMat(0.0f);
+    projMat[0][0] = 2.0f * fx / float(width);
+    projMat[1][1] = 2.0f * fy / float(height);
+    projMat[2][0] = 2.0f * cx / float(width) - 1.0f;
+    projMat[2][1] = 2.0f * cy / float(height) - 1.0f;
+    projMat[2][2] = -(farPlane + nearPlane) / (farPlane - nearPlane);
+    projMat[2][3] = -1.0f;
+    projMat[3][2] = -(2.0f * farPlane * nearPlane) / (farPlane - nearPlane);
+
+    glm::mat3 R_cw = glm::transpose(R_cam_to_world);
+    glm::vec3 T_cw = -R_cw * T_cam_to_world;
+
+    glm::mat4 viewMatrix(1.0f);
+    viewMatrix[0][0] = R_cw[0][0]; viewMatrix[1][0] = R_cw[0][1]; viewMatrix[2][0] = R_cw[0][2];
+    viewMatrix[0][1] = R_cw[1][0]; viewMatrix[1][1] = R_cw[1][1]; viewMatrix[2][1] = R_cw[1][2];
+    viewMatrix[0][2] = R_cw[2][0]; viewMatrix[1][2] = R_cw[2][1]; viewMatrix[2][2] = R_cw[2][2];
+    viewMatrix[3][0] = T_cw.x;
+    viewMatrix[3][1] = -T_cw.y;
+    viewMatrix[3][2] = -T_cw.z;
+
+    glm::mat3 R_from_view = glm::mat3(viewMatrix);
+    glm::vec3 t_from_view = glm::vec3(viewMatrix[3]);
+    glm::vec3 camPos = -glm::transpose(R_from_view) * t_from_view;
+
+    FBO exportFbo;
+    exportFbo.init(width, height);
+    exportFbo.createAttachment(GL_COLOR_ATTACHMENT0, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
+
+    GLuint depthRbo;
+    glGenRenderbuffers(1, &depthRbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, depthRbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+    glNamedFramebufferRenderbuffer(exportFbo.getID(), GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthRbo);
+
+    exportFbo.drawBuffersAllAttachments();
+    if (!exportFbo.checkComplete()) {
+        std::cerr << "Failed to create export FBO" << std::endl;
+        glDeleteRenderbuffers(1, &depthRbo);
+        return;
+    }
+
+    exportFbo.bind();
+    glViewport(0, 0, width, height);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // Setup uniforms
+    Uniforms uniforms_cpu = {};
+    uniforms_cpu.viewMat = viewMatrix;
+    uniforms_cpu.projMat = projMat;
+    uniforms_cpu.camera_pos = glm::vec4(camPos, 1.0f);
+    uniforms_cpu.near_plane = nearPlane;
+    uniforms_cpu.far_plane = farPlane;
+    uniforms_cpu.width = (float)width;
+    uniforms_cpu.height = (float)height;
+
+    uniforms.storeData(&uniforms_cpu, 1, sizeof(Uniforms));
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, uniforms.getID());
+
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+
+    triangleMeshShader.start();
+
+    // Render first mesh (this cloud)
+    if (hasMesh && num_mesh_indices > 0) {
+        glBindVertexArray(meshVAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, mesh_vertices.getID());
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+
+        glBindBuffer(GL_ARRAY_BUFFER, mesh_normals.getID());
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+
+        glBindBuffer(GL_ARRAY_BUFFER, mesh_colors.getID());
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh_indices.getID());
+        glDrawElements(GL_TRIANGLES, num_mesh_indices, GL_UNSIGNED_INT, (void*)0);
+
+        glDisableVertexAttribArray(0);
+        glDisableVertexAttribArray(1);
+        glDisableVertexAttribArray(2);
+        glBindVertexArray(0);
+    }
+
+    // Render second mesh (other cloud)
+    if (other.hasMesh && other.num_mesh_indices > 0) {
+        glBindVertexArray(other.meshVAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, other.mesh_vertices.getID());
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+
+        glBindBuffer(GL_ARRAY_BUFFER, other.mesh_normals.getID());
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+
+        glBindBuffer(GL_ARRAY_BUFFER, other.mesh_colors.getID());
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, other.mesh_indices.getID());
+        glDrawElements(GL_TRIANGLES, other.num_mesh_indices, GL_UNSIGNED_INT, (void*)0);
+
+        glDisableVertexAttribArray(0);
+        glDisableVertexAttribArray(1);
+        glDisableVertexAttribArray(2);
+        glBindVertexArray(0);
+    }
+
+    triangleMeshShader.stop();
+
+    glDisable(GL_CULL_FACE);
+    glFinish();
+
+    // Read back pixels
+    std::vector<unsigned char> pixels(width * height * 4);
+    glBindTexture(GL_TEXTURE_2D, exportFbo.getAttachment(GL_COLOR_ATTACHMENT0)->getID());
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    exportFbo.unbind();
+    glDeleteRenderbuffers(1, &depthRbo);
+
+    // Save with OpenCV
     cv::Mat image(height, width, CV_8UC4, pixels.data());
     cv::cvtColor(image, image, cv::COLOR_RGBA2BGR);
     cv::flip(image, image, 0);
-    
+
     cv::imwrite(outputPath, image);
-    std::cout << "Exported to: " << outputPath << std::endl;
+    std::cout << "Exported combined mesh render to: " << outputPath << std::endl;
 }

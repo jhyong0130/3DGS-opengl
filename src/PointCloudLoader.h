@@ -22,6 +22,15 @@ public:
         const glm::mat3& rgbToWorldR,
         const glm::vec3& rgbToWorldT,
         bool useCudaGLInterop = true);
+    static void loadRgbdAsMesh(GaussianCloud& dst, const std::string& depth_path,
+        const std::string& rgb_path,
+        const glm::mat3& depth_intrinsics,
+        const glm::mat3& rgb_intrinsics,
+        const glm::mat3& R,
+        const glm::vec3& T,
+        const glm::mat3& rgbToWorldR,
+        const glm::vec3& rgbToWorldT,
+        bool useCudaGLInterop = true);
     static void merge(GaussianCloud& dst, const GaussianCloud& a, const GaussianCloud& b, bool useCudaGLInterop);
 };
 
