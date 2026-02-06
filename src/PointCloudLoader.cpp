@@ -812,7 +812,7 @@ void PointCloudLoader::loadRgbdAsMesh(GaussianCloud& dst, const std::string& dep
             float v = FY_RGB * (y_rgb_mm / z_rgb_mm) + CY_RGB;
 
             // Check if projection is within RGB image bounds with border
-            if (u < 100 || u >= w_rgb - 100 || v < 50 || v >= h_rgb - 50) continue;
+            //if (u < 100 || u >= w_rgb - 100 || v < 50 || v >= h_rgb - 50) continue;
 
             // Get RGB color
             int u_int = std::max(0, std::min(w_rgb - 1, (int)round(u)));
