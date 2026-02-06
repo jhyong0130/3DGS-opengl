@@ -1185,18 +1185,17 @@ void GaussianCloud::exportRenderAtPose(
     glm::mat3 F(1.0f);
     F[1][1] = -1.0f;
     F[2][2] = -1.0f;
-
-    glm::mat3 R_cw = glm::transpose(R_cam_to_world);
-    glm::vec3 T_cw = -R_cw * T_cam_to_world;
+    glm::mat3 R_cam_to_world_GL = F * R_cam_to_world * F;
+    glm::vec3 T_cam_to_world_GL = F * T_cam_to_world;
+    glm::mat3 R_wc = glm::transpose(R_cam_to_world_GL);  // world-to-camera rotation
+    glm::vec3 T_wc = -R_wc * T_cam_to_world_GL;
 
     // Pack to mat4 (column-major)
     glm::mat4 viewMatrix(1.0f);
-    viewMatrix[0][0] = R_cw[0][0]; viewMatrix[1][0] = R_cw[0][1]; viewMatrix[2][0] = R_cw[0][2];
-    viewMatrix[0][1] = R_cw[1][0]; viewMatrix[1][1] = R_cw[1][1]; viewMatrix[2][1] = R_cw[1][2];
-    viewMatrix[0][2] = R_cw[2][0]; viewMatrix[1][2] = R_cw[2][1]; viewMatrix[2][2] = R_cw[2][2];
-    viewMatrix[3][0] = T_cw.x;
-    viewMatrix[3][1] = -T_cw.y;
-    viewMatrix[3][2] = -T_cw.z;
+    viewMatrix[0] = glm::vec4(R_wc[0], 0.0f);
+    viewMatrix[1] = glm::vec4(R_wc[1], 0.0f);
+    viewMatrix[2] = glm::vec4(R_wc[2], 0.0f);
+    viewMatrix[3] = glm::vec4(T_wc, 1.0f);
 
     std::cout << "View Matrix:" << std::endl;
     for (int row = 0; row < 4; row++) {
