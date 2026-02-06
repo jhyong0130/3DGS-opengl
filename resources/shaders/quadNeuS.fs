@@ -105,19 +105,19 @@ void main(void){
  
     
    // 2D Analytical Splatting
-   //const vec4 conic_opacity = uniforms.conic_opacity[InstanceID];
-   //const mat2 conic = mat2(conic_opacity.x, conic_opacity.y,
-   //                    conic_opacity.y, conic_opacity.z);
-   //const float opacity = conic_opacity.w;
-   //const float power = -0.5f * dot(local_coord, conic * local_coord);
+   const vec4 conic_opacity = uniforms.conic_opacity[InstanceID];
+   const mat2 conic = mat2(conic_opacity.x, conic_opacity.y,
+                       conic_opacity.y, conic_opacity.z);
+   const float opacity = conic_opacity.w;
+   const float power = -0.5f * dot(local_coord, conic * local_coord);
    //if (power < -3.0f) {
    //    ___discard;
    //}
-   //float alpha_gs = min(0.99f, opacity * exp(power));
+   float alpha_gs = min(0.99f, opacity * exp(power));
    
    // calculate final alpha
-   float alpha = compute_alpha(cov3D_inv, cam, mean, sdf_site, normal_cam, cam_ray_cam); //neuS
-   //float alpha = alpha_gs; 
+   //float alpha = compute_alpha(cov3D_inv, cam, mean, sdf_site, normal_cam, cam_ray_cam); //neuS
+   float alpha = alpha_gs; 
     
    if (!isnan(alpha) && !isinf(alpha)) {
        out_Color = vec4(vec3(color) * alpha, alpha);

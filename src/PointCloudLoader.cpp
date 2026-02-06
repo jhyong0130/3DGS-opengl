@@ -133,6 +133,35 @@ SurfaceBasis computeDepthBasis(
     return { n, t, b };
 }
 
+static inline float choose_scale_neus(float depth_mm, const glm::vec3& n_cam, const glm::vec3& p_cam_mm)
+{
+    // ---- distance mapping: [1..1500]mm -> [1..1000] ----
+    const float d0 = 1.0f, d1 = 1500.0f;
+    const float s0 = 1.0f, s1 = 1000.0f;
+
+    float t = (depth_mm - d0) / (d1 - d0);
+    t = std::clamp(t, 0.0f, 1.0f);
+
+    // power curve: near stays small, far ramps up
+    const float p = 2.0f; // tune: 1=linear, 2~3 stronger far emphasis
+    float s_dist = s0 + (s1 - s0) * std::pow(t, p);
+
+    // ---- orientation gain (camera space) ----
+    // view dir point->camera
+    glm::vec3 v = glm::normalize(-p_cam_mm);
+
+    float cos_nv = std::abs(glm::dot(glm::normalize(n_cam), v));
+    cos_nv = std::clamp(cos_nv, 0.05f, 1.0f); // avoid blow-up at grazing
+
+    const float q = 2.0f;                      // tune strength
+    float gain = std::pow(1.0f / cos_nv, q);   // grazing -> bigger
+    gain = std::clamp(gain, 1.0f, 6.0f);       // cap
+
+    float s = s_dist * gain;
+    return std::clamp(s, s0, s1);
+}
+
+
 glm::vec3 convertNormalToWorld(
     const glm::vec3& n_cam,
     const glm::mat3& R_depthToRgb,
@@ -507,6 +536,7 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
     std::vector<glm::vec4> temp_normals;
 	std::vector<glm::vec3> temp_tangents_cam;
     std::vector<float> temp_opacities;
+    std::vector<float> temp_scale_neus;
 
     for (int i = 0; i < h_d; i++) {
         for (int j = 0; j < w_d; j++) {
@@ -514,14 +544,14 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
             float depth_mm = static_cast<float>(depth_image.at<uint16_t>(i, j));
 
             // Skip invalid depth values (keep same max range, in mm)
-            if (depth_mm <= 0.0f || depth_mm > 1500.0f) continue;
+            if (depth_mm <= 0.0f || depth_mm > 1800.0f) continue;
 
             // Convert pixel coordinates to 3D point in depth camera coordinates (mm)
             float x_d_mm = (j - CX_DEPTH) * depth_mm / FX_DEPTH;
             float y_d_mm = (i - CY_DEPTH) * depth_mm / FY_DEPTH;
             float z_d_mm = depth_mm;
 
-            // Transform to RGB camera coordinates using R and T (all in mm)
+            // Transform to RGB camera coordinates using R and T (in mm)
             glm::vec3 point_depth_mm = glm::vec3(x_d_mm, y_d_mm, z_d_mm);
             glm::vec3 point_rgb_mm = R * point_depth_mm + T;
 
@@ -540,7 +570,7 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
             if (u < 0 || u >= w_rgb || v < 0 || v >= h_rgb) continue;
 
 			// Remove 100 pixels border to avoid invalid colors
-			if (u < 400 || u >= w_rgb - 400 || v < 0 || v >= h_rgb - 100) continue;
+			//if (u < 400 || u >= w_rgb - 400 || v < 0 || v >= h_rgb - 100) continue;
 
             // Clip to RGB image bounds
             int u_int = std::max(0, std::min(w_rgb - 1, (int)round(u)));
@@ -582,6 +612,10 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
                 rgbToWorldR       // RGB Å® world rotation
             );
             glm::vec4 normal_world_h = glm::vec4(normal_world, 0.0f);
+
+			// Choose scale for NeuS representation
+            float scale_neus = choose_scale_neus(depth_mm, n, point_depth_mm);
+            temp_scale_neus.push_back(scale_neus);
 
             temp_positions.push_back(pos_world_h);
             temp_opacities.push_back(opacity);
@@ -671,6 +705,10 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
         dst.covariance[row].storeData(cov, dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
         delete[] cov;
     }
+
+    // Store scale for NeuS representation (after the normals upload)
+    dst.scale_neus_cpu = temp_scale_neus;
+    dst.scale_neus.storeData(dst.scale_neus_cpu.data(), dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, false, true);
 
     // Initialize remaining buffers
     dst.sdf_cpu = std::vector<float>(dst.num_gaussians, 0.0f);
@@ -898,6 +936,21 @@ void PointCloudLoader::merge(GaussianCloud& dst,
     else if (hasB) dst.sdf_cpu.insert(dst.sdf_cpu.end(), nB, 0.0f);
 
     dst.sdf.storeData(dst.sdf_cpu.data(), dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, false, true);
+
+    // 2.4a scale_neus
+    std::vector<float> scaleNeusA, scaleNeusB;
+    if (hasA) scaleNeusA = fetchFloat(a, a.scale_neus_cpu, a.scale_neus, nA);
+    if (hasB) scaleNeusB = fetchFloat(b, b.scale_neus_cpu, b.scale_neus, nB);
+
+    dst.scale_neus_cpu.clear();
+    dst.scale_neus_cpu.reserve(dst.num_gaussians);
+    if (hasA && !scaleNeusA.empty()) dst.scale_neus_cpu.insert(dst.scale_neus_cpu.end(), scaleNeusA.begin(), scaleNeusA.end());
+    else if (hasA) dst.scale_neus_cpu.insert(dst.scale_neus_cpu.end(), nA, 1.0f);
+
+    if (hasB && !scaleNeusB.empty()) dst.scale_neus_cpu.insert(dst.scale_neus_cpu.end(), scaleNeusB.begin(), scaleNeusB.end());
+    else if (hasB) dst.scale_neus_cpu.insert(dst.scale_neus_cpu.end(), nB, 1.0f);
+
+    dst.scale_neus.storeData(dst.scale_neus_cpu.data(), dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, false, true);
 
     // 2.4 SH Coeffs
     for (int ch = 0; ch < 3; ++ch) {
