@@ -540,7 +540,7 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
             if (u < 0 || u >= w_rgb || v < 0 || v >= h_rgb) continue;
 
 			// Remove 100 pixels border to avoid invalid colors
-			if (u < 400 || u >= w_rgb - 400 || v < 0 || v >= h_rgb - 100) continue;
+			//if (u < 400 || u >= w_rgb - 400 || v < 0 || v >= h_rgb - 100) continue;
 
             // Clip to RGB image bounds
             int u_int = std::max(0, std::min(w_rgb - 1, (int)round(u)));
@@ -781,7 +781,7 @@ void PointCloudLoader::loadRgbdAsMesh(GaussianCloud& dst, const std::string& dep
     std::vector<glm::vec4> normals;
     std::vector<glm::vec4> colors;
 
-    const float MAX_DEPTH_MM = 1500.0f;
+    const float MAX_DEPTH_MM = 2000.0f;
     const float DEPTH_DISCONTINUITY_THRESHOLD_MM = 20.0f; // 20mm threshold for edge detection
 
     for (int i = 0; i < h_d; i++) {
