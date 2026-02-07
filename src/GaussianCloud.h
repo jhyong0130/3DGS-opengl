@@ -197,7 +197,7 @@ private:
     bool renderAsPoints = false;
     bool renderAsQuads = false;
     float scale_modifier = 2.5f;
-	float scale_neus = 1.0f;
+	float scale_neus = 10000.0f;
     float SDF_scale = 1.0f;
     bool antialiasing = false;
     float min_opacity = 0.02f;

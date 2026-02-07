@@ -795,7 +795,7 @@ void GaussianCloud::GUI(Camera& camera) {
     ImGui::Checkbox("Front to back blending", &front_to_back);
     ImGui::Checkbox("Software alpha-blending", &softwareBlending);
     ImGui::SliderFloat("scale_modifier", &scale_modifier, 0.001f, 10.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-	ImGui::SliderFloat("scale_neus", &scale_neus, 1.0f, 1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+	ImGui::SliderFloat("scale_neus", &scale_neus, 10000.0f, 100000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
     ImGui::SliderFloat("min_opacity", &min_opacity, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
 
 
