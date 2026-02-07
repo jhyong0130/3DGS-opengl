@@ -51,15 +51,15 @@ float compute_alpha(mat3 cov3D_inv, vec3 cam, vec3 site, float sdf_site, vec3 no
     const float b = dot(local_ray, cov3D_inv * local_delta);
     const float c = dot(local_delta, cov3D_inv * local_delta);
     const float lambda = dot(local_ray, normal);
-    const float delta = sdf_site + dot(local_delta, normal);
+    const float delta = sdf_site + dot(local_delta, normal) / 1000.0f;
 
     float bb = b/2.0f + uniforms.scale_neus * lambda * delta;
     float cc = c/2.0f + uniforms.scale_neus * delta * delta;
     float aa = a/2.0f + uniforms.scale_neus * lambda*lambda;
     
     if (aa < 1e-6f) return 0.0f;
-    float K = (sqrt(PI)/(2.0f*sqrt(aa))) * sqrt(uniforms.scale_neus);
-    float power = K * exp(bb*bb/aa - cc) * erfc_approx(bb/sqrt(aa));
+    float K = (sqrt(PI)/(2.0f*sqrt(aa))); // * sqrt(uniforms.scale_neus);
+    float power = K * exp(bb*bb/aa - cc) * erfc_approx(bb/sqrt(aa)) * sqrt(aa/2.0f);
     return min(1.0f, power); //lambda < 0.0 ? min(1.0, power) : 0.0;
 }
 
