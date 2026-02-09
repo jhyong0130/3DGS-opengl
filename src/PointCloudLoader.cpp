@@ -136,8 +136,8 @@ SurfaceBasis computeDepthBasis(
 static inline float choose_scale_neus(float depth_mm, const glm::vec3& n_cam, const glm::vec3& p_cam_mm)
 {
     // ---- distance mapping: [1..1500]mm -> [1..1000] ----
-    const float d0 = 1.0f, d1 = 1500.0f;
-    const float s0 = 1.0f, s1 = 1000.0f;
+    const float d0 = 1.0f, d1 = 2000.0f;
+    const float s0 = 100000.0f, s1 = 1000000.0f;
 
     float t = (depth_mm - d0) / (d1 - d0);
     t = std::clamp(t, 0.0f, 1.0f);
