@@ -558,8 +558,8 @@ void GaussianCloud::render(Camera &camera) {
         }
         
         glEnable(GL_DEPTH_TEST);
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_BACK);
+        glDisable(GL_CULL_FACE);
+        //glCullFace(GL_BACK);
 
         {
             auto& q = timers[OPERATIONS::DRAW_AS_TRIANGLE_MESH].push_back();
@@ -1497,8 +1497,8 @@ void GaussianCloud::exportCombinedMeshRenderAtPose(
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, uniforms.getID());
 
     glEnable(GL_DEPTH_TEST);
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
+    glDisable(GL_CULL_FACE);
+    //glCullFace(GL_BACK);
 
     triangleMeshShader.start();
 
