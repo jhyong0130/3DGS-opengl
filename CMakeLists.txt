@@ -94,6 +94,8 @@ add_executable(CVTSPLAT
 		src/CVTupdate.cuh
 		src/KNN_cuda.cu
 		src/KNN_cuda.cuh
+		src/RgbdLoadCuda.cu
+		src/RgbdLoadCuda.cuh
 		src/knn_cu/lbvh_kernels.cu
 		src/knn_cu/query_knn_kernels.cu
 )

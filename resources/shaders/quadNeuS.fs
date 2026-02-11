@@ -50,8 +50,8 @@ float compute_alpha(mat3 cov3D_inv, vec3 cam, vec3 site, float sdf_site, vec3 no
     const float a = dot(local_ray, cov3D_inv * local_ray);
     const float b = dot(local_ray, cov3D_inv * local_delta);
     const float c = dot(local_delta, cov3D_inv * local_delta);
-    const float lambda = dot(local_ray, normal) /100.0f ;
-    const float delta = sdf_site + dot(local_delta, normal) / 100.0f;
+    const float lambda = dot(local_ray, normal) /1000.0f ;
+    const float delta = sdf_site + dot(local_delta, normal) / 1000.0f;
 
     float bb = b/2.0f + uniforms.scale_neus * lambda * delta;
     float cc = c/2.0f + uniforms.scale_neus * delta * delta;

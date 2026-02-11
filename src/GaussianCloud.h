@@ -90,24 +90,24 @@ public:
 
 
     std::vector<float*> dLoss_sh_coeffs;
-    float* dLoss_SDF;
+    float* dLoss_SDF = nullptr;
 
     std::vector<float*> d_m_sh_coeff; 
     std::vector<float*> d_v_sh_coeff;
-    float* d_m_sdf;
-    float* d_v_sdf;
+    float* d_m_sdf = nullptr;
+    float* d_v_sdf = nullptr;
 
-    float3* pts_f3;
-    uint32_t* morton_codes;
-    uint32_t* sorted_indices;
-    uint32_t* indices_out;
-    float* distances_out;
-    uint32_t* n_neighbors_out;
+    float3* pts_f3 = nullptr;
+    uint32_t* morton_codes = nullptr;
+    uint32_t* sorted_indices = nullptr;
+    uint32_t* indices_out = nullptr;
+    float* distances_out = nullptr;
+    uint32_t* n_neighbors_out = nullptr;
 
-    float* threshold_sdf;
-    unsigned char* d_flags;
-    uint4* d_adjacencies;
-    uint4* d_adjacencies_delaunay;
+    float* threshold_sdf = nullptr;
+    unsigned char* d_flags = nullptr;
+    uint4* d_adjacencies = nullptr;
+    uint4* d_adjacencies_delaunay = nullptr;
     int KVal = 32;
     int KVal_d = 0;
 
@@ -134,6 +134,7 @@ public:
     }
 
     ~GaussianCloud() {
+        freeRawCudaBuffers();
         delete knn_tree;
 
         if (GT_tex) {
@@ -142,6 +143,11 @@ public:
         }
     }
 
+    // Free all raw CUDA allocations (must be called before re-loading data)
+    void freeRawCudaBuffers();
+
+    // Release CPU-side vectors to save host memory after data is on GPU
+    void clearCpuData();
 
     void initShaders();
     void GUI(Camera& camera);
