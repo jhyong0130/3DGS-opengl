@@ -74,9 +74,10 @@ static void calculateDepthCovariance(const std::vector<glm::vec3>& positions,
         // simplifies to z_mm / fx_depth (in mm)
         float s_x = z_mm / fx_depth;
         float s_y = z_mm / fy_depth;
-        //float s_z = (depth_noise_a * z_mm - depth_noise_b); // s_z: depth uncertainty in mm
-		float s_z = (s_x * tangents[i].x + s_y * tangents[i].y) / 2.0f; // s_z: depth in mm, based on tangent x component
-		if (s_z <= 0.05f || isnan(s_z) || isinf(s_z)) s_z = (depth_noise_a * z_mm - depth_noise_b);
+        float z_noise = (depth_noise_a * z_mm - depth_noise_b); // s_z: depth uncertainty in mm
+        float dzx = fabs(s_x * tangents[i].x);
+        float dzy = fabs(s_y * tangents[i].y);
+        float s_z = (dzx + dzy) + z_noise;
 
         // Variance in mm^2
         float var_x = (s_x * s_x) / 4.0f;
@@ -650,8 +651,8 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
     dst.normals.storeData(dst.normals_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
 
     // Initialize opacities to 1.0 for valid points
-    dst.opacities_cpu = std::vector<float>(dst.num_gaussians, 1.0f);
-    //dst.opacities_cpu = temp_opacities;
+    // dst.opacities_cpu = std::vector<float>(dst.num_gaussians, 1.0f);
+    dst.opacities_cpu = temp_opacities;
     dst.opacities.storeData(dst.opacities_cpu.data(), dst.num_gaussians, 1 * sizeof(float), 0, useCudaGLInterop, false, true);
 
     // Store RGB colors as spherical harmonics coefficients (DC component only)
