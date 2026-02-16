@@ -59,6 +59,7 @@ public:
     std::vector<glm::vec4> rotations_cpu;
     std::vector<float> opacities_cpu;
     std::vector<float> sdf_cpu;
+	std::vector<float> scale_neus_cpu;
 
     // values for all the gaussians
     GLBuffer positions; // x, y, z, padding
@@ -68,6 +69,7 @@ public:
     //GLBuffer rotations; // rx, ry, rz, rw
     GLBuffer opacities; // alpha
     GLBuffer sdf; // alpha
+    GLBuffer scale_neus;
     GLBuffer sh_coeffs[3]; // 3 color channels, 16 coeffs each
 
     // values only for the gaussians that are visible, packed tightly without gaps
@@ -197,7 +199,7 @@ private:
     bool renderAsPoints = false;
     bool renderAsQuads = false;
     float scale_modifier = 2.5f;
-	float scale_neus = 10000.0f;
+	//float scale_neus = 1.0f;
     float SDF_scale = 1.0f;
     bool antialiasing = false;
     float min_opacity = 0.02f;
