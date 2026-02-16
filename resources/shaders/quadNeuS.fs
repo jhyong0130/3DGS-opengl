@@ -45,7 +45,7 @@ float erf(float x) {
     return 1.0 - erfc_approx(x);
 }
 
-float compute_alpha(mat3 cov3D_inv, vec3 cam, vec3 site, float sdf_site, vec3 normal, vec3 local_ray) {
+float compute_alpha(mat3 cov3D_inv, vec3 cam, vec3 site, float sdf_site, vec3 normal, vec3 local_ray, float scale_neus) {
     vec3 local_delta = (cam - site);
     const float a = dot(local_ray, cov3D_inv * local_ray);
     const float b = dot(local_ray, cov3D_inv * local_delta);
@@ -53,12 +53,12 @@ float compute_alpha(mat3 cov3D_inv, vec3 cam, vec3 site, float sdf_site, vec3 no
     const float lambda = dot(local_ray, normal);
     const float delta = sdf_site + dot(local_delta, normal);
 
-    float bb = b/2.0f + uniforms.scale_neus * lambda * delta;
-    float cc = c/2.0f + uniforms.scale_neus * delta * delta;
-    float aa = a/2.0f + uniforms.scale_neus * lambda*lambda;
+    float bb = b/2.0f + scale_neus * lambda * delta;
+    float cc = c/2.0f + scale_neus * delta * delta;
+    float aa = a/2.0f + scale_neus * lambda*lambda;
     
     if (aa < 1e-6f) return 0.0f;
-    float K = (sqrt(PI)/(2.0f*sqrt(aa))) * sqrt(uniforms.scale_neus);
+    float K = (sqrt(PI)/(2.0f*sqrt(aa))) * sqrt(scale_neus);
     float power = K * exp(bb*bb/aa - cc) * erfc_approx(bb/sqrt(aa));
     return min(1.0f, power); //lambda < 0.0 ? min(1.0, power) : 0.0;
 }
@@ -70,7 +70,8 @@ void main(void){
     const vec3 site = vec3(uniforms.positions[Gaussian_ID]);
     vec3 normal_world = vec3(uniforms.normals[Gaussian_ID]);
     const float sdf_site = 0.0f;//uniforms.sdf[Gaussian_ID];
-    
+       float scale_neus = uniforms.scale_neus[Gaussian_ID];
+
     vec2 curr_pix = local_coord + center;
     vec2 ndc = (curr_pix / vec2(uniforms.width, uniforms.height)) * 2.0 - 1.0;
     vec4 unproj = inverse(uniforms.projMat) * vec4(ndc, 1.0, 1.0);
@@ -116,7 +117,7 @@ void main(void){
    float alpha_gs = min(0.99f, opacity * exp(power));
    
    // calculate final alpha
-   //float alpha = compute_alpha(cov3D_inv, cam, mean, sdf_site, normal_cam, cam_ray_cam); //neuS
+   //float alpha = compute_alpha(cov3D_inv, cam, mean, sdf_site, normal_cam, cam_ray_cam, scale_neus); //neuS
    float alpha = alpha_gs; 
     
    if (!isnan(alpha) && !isinf(alpha)) {

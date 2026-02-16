@@ -1,4 +1,4 @@
-//
+Ôªø//
 // Created by Briac on 27/08/2025.
 //
 
@@ -135,30 +135,28 @@ SurfaceBasis computeDepthBasis(
 
 static inline float choose_scale_neus(float depth_mm, const glm::vec3& n_cam, const glm::vec3& p_cam_mm)
 {
-    // ---- distance mapping: [1..1500]mm -> [1..1000] ----
-    const float d0 = 1.0f, d1 = 2000.0f;
-    const float s0 = 100000.0f, s1 = 1000000.0f;
+    // --- slide parameters ---
+    const float D = 1500.0f;   // max distance (mm) used for normalization
+    const float S_near = 1000000.0f;   // near -> larger s (sharper)
+    const float S_far = 100000.0f;      // far  -> smaller s (blurrier)
+    const float alpha = 1.0f;      // orientation strength (your slide's Œ±)
 
-    float t = (depth_mm - d0) / (d1 - d0);
-    t = std::clamp(t, 0.0f, 1.0f);
+    // ---------------- distance effect: (S_near - (S_near - S_far) * (d/D)^2) ----------------
+    float x = depth_mm / D;
+    x = std::clamp(x, 0.0f, 1.0f);
 
-    // power curve: near stays small, far ramps up
-    const float p = 2.0f; // tune: 1=linear, 2~3 stronger far emphasis
-    float s_dist = s0 + (s1 - s0) * std::pow(t, p);
+    float s_dist = S_near - (S_near - S_far) * (x * x); // near high, far low
 
-    // ---- orientation gain (camera space) ----
-    // view dir point->camera
-    glm::vec3 v = glm::normalize(-p_cam_mm);
-
+    // ---------------- orientation effect: (1 + Œ± / |n¬∑v|) ----------------
+    glm::vec3 v = glm::normalize(-p_cam_mm);  // point -> camera (camera space)
     float cos_nv = std::abs(glm::dot(glm::normalize(n_cam), v));
     cos_nv = std::clamp(cos_nv, 0.05f, 1.0f); // avoid blow-up at grazing
 
-    const float q = 2.0f;                      // tune strength
-    float gain = std::pow(1.0f / cos_nv, q);   // grazing -> bigger
-    gain = std::clamp(gain, 1.0f, 6.0f);       // cap
+    float orient = 1.0f + alpha * (1.0f / cos_nv);
+    orient = std::clamp(orient, 1.0f, 6.0f);  // cap for stability
 
-    float s = s_dist * gain;
-    return std::clamp(s, s0, s1);
+    float s = s_dist * orient;
+    return std::clamp(s, S_far, S_near);
 }
 
 
@@ -608,8 +606,8 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
 
             glm::vec3 normal_world = convertNormalToWorld(
                 n,
-                R,                // depth Å® RGB rotation
-                rgbToWorldR       // RGB Å® world rotation
+                R,                // depth ‚Üí RGB rotation
+                rgbToWorldR       // RGB ‚Üí world rotation
             );
             glm::vec4 normal_world_h = glm::vec4(normal_world, 0.0f);
 
