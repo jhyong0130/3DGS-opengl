@@ -185,7 +185,7 @@ void GaussianCloud::prepareRender(Camera &camera, bool GT) {
     //std::cout << uniforms_cpu.near_plane << ", " << uniforms_cpu.far_plane << std::endl;
     
     uniforms_cpu.scale_modifier = scale_modifier;
-	uniforms_cpu.scale_neus = scale_neus;
+	// uniforms_cpu.scale_neus = scale_neus;
 
     uniforms_cpu.selected_gaussian = selected_gaussian;
     uniforms_cpu.min_opacity = min_opacity;
@@ -212,6 +212,7 @@ void GaussianCloud::prepareRender(Camera &camera, bool GT) {
     //uniforms_cpu.rotations = reinterpret_cast<vec4 *>(rotations.getGLptr());
     //uniforms_cpu.scales = reinterpret_cast<vec4 *>(scales.getGLptr());
     uniforms_cpu.sdf = reinterpret_cast<float *>(sdf.getGLptr());
+    uniforms_cpu.scale_neus = reinterpret_cast<float*>(scale_neus.getGLptr());
     uniforms_cpu.sh_coeffs_red = reinterpret_cast<float *>(sh_coeffs[0].getGLptr());
     uniforms_cpu.sh_coeffs_green = reinterpret_cast<float *>(sh_coeffs[1].getGLptr());
     uniforms_cpu.sh_coeffs_blue = reinterpret_cast<float *>(sh_coeffs[2].getGLptr());
@@ -835,7 +836,7 @@ void GaussianCloud::GUI(Camera& camera) {
     ImGui::Checkbox("Front to back blending", &front_to_back);
     ImGui::Checkbox("Software alpha-blending", &softwareBlending);
     ImGui::SliderFloat("scale_modifier", &scale_modifier, 0.001f, 10.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-	ImGui::SliderFloat("scale_neus", &scale_neus, 10000.0f, 100000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+	// ImGui::SliderFloat("scale_neus", &scale_neus, 1.0f, 1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
     ImGui::SliderFloat("min_opacity", &min_opacity, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
 
 
@@ -1312,7 +1313,7 @@ void GaussianCloud::exportRenderAtPose(
     uniforms_cpu.near_plane = nearPlane;
     uniforms_cpu.far_plane = farPlane;
     uniforms_cpu.scale_modifier = scale_modifier;
-    uniforms_cpu.scale_neus = scale_neus;
+    // uniforms_cpu.scale_neus = scale_neus;
     uniforms_cpu.selected_gaussian = -1;
     uniforms_cpu.min_opacity = min_opacity;
     uniforms_cpu.width = width;
@@ -1330,6 +1331,7 @@ void GaussianCloud::exportRenderAtPose(
     uniforms_cpu.covY = reinterpret_cast<glm::vec4*>(covariance[1].getGLptr());
     uniforms_cpu.covZ = reinterpret_cast<glm::vec4*>(covariance[2].getGLptr());
     uniforms_cpu.sdf = reinterpret_cast<float*>(sdf.getGLptr());
+	uniforms_cpu.scale_neus = reinterpret_cast<float*>(scale_neus.getGLptr());
     uniforms_cpu.sh_coeffs_red = reinterpret_cast<float*>(sh_coeffs[0].getGLptr());
     uniforms_cpu.sh_coeffs_green = reinterpret_cast<float*>(sh_coeffs[1].getGLptr());
     uniforms_cpu.sh_coeffs_blue = reinterpret_cast<float*>(sh_coeffs[2].getGLptr());

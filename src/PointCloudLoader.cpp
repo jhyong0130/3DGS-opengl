@@ -87,9 +87,10 @@ static void calculateDepthCovariance(const std::vector<glm::vec3>& positions,
         // simplifies to z_mm / fx_depth (in mm)
         float s_x = z_mm / fx_depth;
         float s_y = z_mm / fy_depth;
-        //float s_z = (depth_noise_a * z_mm - depth_noise_b); // s_z: depth uncertainty in mm
-		float s_z = (s_x * tangents[i].x + s_y * tangents[i].y) / 2.0f; // s_z: depth in mm, based on tangent x component
-		if (s_z <= 0.05f || isnan(s_z) || isinf(s_z)) s_z = (depth_noise_a * z_mm - depth_noise_b);
+        float z_noise = (depth_noise_a * z_mm - depth_noise_b); // s_z: depth uncertainty in mm
+        float dzx = fabs(s_x * tangents[i].x);
+        float dzy = fabs(s_y * tangents[i].y);
+        float s_z = (dzx + dzy) + z_noise;
 
         // Variance in mm^2
         float var_x = (s_x * s_x) / 4.0f;
@@ -145,6 +146,33 @@ SurfaceBasis computeDepthBasis(
 
     return { n, t, b };
 }
+
+static inline float choose_scale_neus(float depth_mm, const glm::vec3& n_cam, const glm::vec3& p_cam_mm)
+{
+    // --- slide parameters ---
+    const float D = 1500.0f;   // max distance (mm) used for normalization
+    const float S_near = 1000000.0f;   // near -> larger s (sharper)
+    const float S_far = 100000.0f;      // far  -> smaller s (blurrier)
+    const float alpha = 1.0f;      // orientation strength (your slide's α)
+
+    // ---------------- distance effect: (S_near - (S_near - S_far) * (d/D)^2) ----------------
+    float x = depth_mm / D;
+    x = std::clamp(x, 0.0f, 1.0f);
+
+    float s_dist = S_near - (S_near - S_far) * (x * x); // near high, far low
+
+    // ---------------- orientation effect: (1 + α / |n·v|) ----------------
+    glm::vec3 v = glm::normalize(-p_cam_mm);  // point -> camera (camera space)
+    float cos_nv = std::abs(glm::dot(glm::normalize(n_cam), v));
+    cos_nv = std::clamp(cos_nv, 0.05f, 1.0f); // avoid blow-up at grazing
+
+    float orient = 1.0f + alpha * (1.0f / cos_nv);
+    orient = std::clamp(orient, 1.0f, 6.0f);  // cap for stability
+
+    float s = s_dist * orient;
+    return std::clamp(s, S_far, S_near);
+}
+
 
 glm::vec3 convertNormalToWorld(
     const glm::vec3& n_cam,
@@ -524,6 +552,7 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
     std::vector<glm::vec4> temp_normals;
 	std::vector<glm::vec3> temp_tangents_cam;
     std::vector<float> temp_opacities;
+    std::vector<float> temp_scale_neus;
 
     for (int i = 0; i < h_d; i++) {
         for (int j = 0; j < w_d; j++) {
@@ -531,14 +560,14 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
             float depth_mm = static_cast<float>(depth_image.at<uint16_t>(i, j));
 
             // Skip invalid depth values (keep same max range, in mm)
-            if (depth_mm <= 0.0f || depth_mm > 1500.0f) continue;
+            if (depth_mm <= 0.0f || depth_mm > 1800.0f) continue;
 
             // Convert pixel coordinates to 3D point in depth camera coordinates (mm)
             float x_d_mm = (j - CX_DEPTH) * depth_mm / FX_DEPTH;
             float y_d_mm = (i - CY_DEPTH) * depth_mm / FY_DEPTH;
             float z_d_mm = depth_mm;
 
-            // Transform to RGB camera coordinates using R and T (all in mm)
+            // Transform to RGB camera coordinates using R and T (in mm)
             glm::vec3 point_depth_mm = glm::vec3(x_d_mm, y_d_mm, z_d_mm);
             glm::vec3 point_rgb_mm = R * point_depth_mm + T;
 
@@ -557,7 +586,7 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
             if (u < 0 || u >= w_rgb || v < 0 || v >= h_rgb) continue;
 
 			// Remove 100 pixels border to avoid invalid colors
-			if (u < 400 || u >= w_rgb - 400 || v < 0 || v >= h_rgb - 100) continue;
+			//if (u < 400 || u >= w_rgb - 400 || v < 0 || v >= h_rgb - 100) continue;
 
             // Clip to RGB image bounds
             int u_int = std::max(0, std::min(w_rgb - 1, (int)round(u)));
@@ -595,10 +624,14 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
 
             glm::vec3 normal_world = convertNormalToWorld(
                 n,
-                R,                // depth �� RGB rotation
-                rgbToWorldR       // RGB �� world rotation
+                R,                // depth → RGB rotation
+                rgbToWorldR       // RGB → world rotation
             );
             glm::vec4 normal_world_h = glm::vec4(normal_world, 0.0f);
+
+			// Choose scale for NeuS representation
+            float scale_neus = choose_scale_neus(depth_mm, n, point_depth_mm);
+            temp_scale_neus.push_back(scale_neus);
 
             temp_positions.push_back(pos_world_h);
             temp_opacities.push_back(opacity);
@@ -635,8 +668,8 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
     dst.normals.storeData(dst.normals_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
 
     // Initialize opacities to 1.0 for valid points
-    dst.opacities_cpu = std::vector<float>(dst.num_gaussians, 1.0f);
-    //dst.opacities_cpu = temp_opacities;
+    // dst.opacities_cpu = std::vector<float>(dst.num_gaussians, 1.0f);
+    dst.opacities_cpu = temp_opacities;
     dst.opacities.storeData(dst.opacities_cpu.data(), dst.num_gaussians, 1 * sizeof(float), 0, useCudaGLInterop, false, true);
 
     // Store RGB colors as spherical harmonics coefficients (DC component only)
@@ -688,6 +721,10 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
         dst.covariance[row].storeData(cov, dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
         delete[] cov;
     }
+
+    // Store scale for NeuS representation (after the normals upload)
+    dst.scale_neus_cpu = temp_scale_neus;
+    dst.scale_neus.storeData(dst.scale_neus_cpu.data(), dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, false, true);
 
     // Initialize remaining buffers
     dst.sdf_cpu = std::vector<float>(dst.num_gaussians, 0.0f);
@@ -980,6 +1017,25 @@ void PointCloudLoader::loadRgbdGpu(GaussianCloud& dst, const std::string& depth_
 {
     cv::Mat depth_image = cv::imread(depth_path, cv::IMREAD_ANYDEPTH);
     cv::Mat rgb_image = cv::imread(rgb_path, cv::IMREAD_COLOR);
+    // 2.4a scale_neus
+    std::vector<float> scaleNeusA, scaleNeusB;
+    if (hasA) scaleNeusA = fetchFloat(a, a.scale_neus_cpu, a.scale_neus, nA);
+    if (hasB) scaleNeusB = fetchFloat(b, b.scale_neus_cpu, b.scale_neus, nB);
+
+    dst.scale_neus_cpu.clear();
+    dst.scale_neus_cpu.reserve(dst.num_gaussians);
+    if (hasA && !scaleNeusA.empty()) dst.scale_neus_cpu.insert(dst.scale_neus_cpu.end(), scaleNeusA.begin(), scaleNeusA.end());
+    else if (hasA) dst.scale_neus_cpu.insert(dst.scale_neus_cpu.end(), nA, 1.0f);
+
+    if (hasB && !scaleNeusB.empty()) dst.scale_neus_cpu.insert(dst.scale_neus_cpu.end(), scaleNeusB.begin(), scaleNeusB.end());
+    else if (hasB) dst.scale_neus_cpu.insert(dst.scale_neus_cpu.end(), nB, 1.0f);
+
+    dst.scale_neus.storeData(dst.scale_neus_cpu.data(), dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, false, true);
+
+    // 2.4 SH Coeffs
+    for (int ch = 0; ch < 3; ++ch) {
+        std::vector<float> merged(16 * dst.num_gaussians);
+        size_t offset = 0;
 
     if (depth_image.empty() || rgb_image.empty()) {
         std::cerr << "Error: Could not load images!" << std::endl;
