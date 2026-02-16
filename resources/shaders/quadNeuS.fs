@@ -58,8 +58,8 @@ float compute_alpha(mat3 cov3D_inv, vec3 cam, vec3 site, float sdf_site, vec3 no
     float aa = a/2.0f + scale_neus * lambda*lambda;
     
     if (aa < 1e-6f) return 0.0f;
-    float K = (sqrt(PI)/(2.0f*sqrt(aa))) * sqrt(scale_neus);
-    float power = K * exp(bb*bb/aa - cc) * erfc_approx(bb/sqrt(aa));
+    float K = (sqrt(PI)/(2.0f*sqrt(aa))); // * sqrt(uniforms.scale_neus);
+    float power = K * exp(bb*bb/aa - cc) * erfc_approx(bb/sqrt(aa)) * sqrt(aa/2.0f);
     return min(1.0f, power); //lambda < 0.0 ? min(1.0, power) : 0.0;
 }
 
