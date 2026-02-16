@@ -383,6 +383,14 @@ void Window::mainloop(int argc, char** argv) {
     bool isPlaying = false;
     float playbackFps = 30.0f;
     bool loopPlayback = true;
+    
+    std::future<PreloadedFrame> prefetch1, prefetch2;
+    bool prefetchLaunched = false;
+    int  prefetchedFrameIdx = -1;
+
+    // Per-frame timing for FPS display
+    double frameProcTimeMs = 0.0;
+    double actualFps = 0.0;
 
     // Rebuild merged on demand
     auto rebuildMerged = [&]() {
@@ -652,6 +660,22 @@ void Window::mainloop(int argc, char** argv) {
 
             ImGui::Text("Current Frame: %d / %d", playbackFrame, minFrames);
 
+            // Show timing info
+            if (isPlaying || frameProcTimeMs > 0) {
+                ImGui::Text("Processing: %.1f ms/frame  (max %.1f FPS)",
+                    frameProcTimeMs, actualFps);
+                
+                float targetInterval = 1000.0f / playbackFps;
+                if (frameProcTimeMs > targetInterval) {
+                    ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1),
+                        "Too slow for %.0f FPS target (need < %.1f ms)", playbackFps, targetInterval);
+                } else {
+                    ImGui::TextColored(ImVec4(0.3f, 1, 0.3f, 1),
+                        "Can sustain %.0f FPS (%.1f ms headroom)",
+                        playbackFps, targetInterval - (float)frameProcTimeMs);
+                }
+            }
+
             // Load single frame button
             if (ImGui::Button("Load Current Frame")) {
                 try {
@@ -686,24 +710,40 @@ void Window::mainloop(int argc, char** argv) {
                 double frameInterval = 1.0 / (double)playbackFps;
                 if (currentTime - lastPlaybackTime >= frameInterval) {
                     lastPlaybackTime = currentTime;
+                    auto t0 = std::chrono::high_resolution_clock::now();
 
                     try {
-                        if (playbackFrame < seq1.totalFrames) {
-                            if (useGpuLoad) {
-                                PointCloudLoader::loadRgbdGpu(cloud, seq1.depthPaths[playbackFrame], seq1.colorPaths[playbackFrame],
+                        // Use pre-fetched frames if they match the current playback index
+                        if (useGpuLoad && prefetchLaunched && prefetchedFrameIdx == playbackFrame) {
+                            PreloadedFrame f1 = prefetch1.get();
+                            PreloadedFrame f2 = prefetch2.get();
+                            prefetchLaunched = false;
+
+                            if (f1.valid && playbackFrame < seq1.totalFrames)
+                                PointCloudLoader::loadRgbdGpuFromMats(cloud, f1,
                                     DepthIntrinsics1, RGBIntrinsics1, R_Cam1, T_Cam1, rgbToWorldR1, rgbToWorldT1, true);
-                            } else {
-                                PointCloudLoader::loadRgbd(cloud, seq1.depthPaths[playbackFrame], seq1.colorPaths[playbackFrame],
-                                    DepthIntrinsics1, RGBIntrinsics1, R_Cam1, T_Cam1, rgbToWorldR1, rgbToWorldT1, true);
+                            if (f2.valid && playbackFrame < seq2.totalFrames)
+                                PointCloudLoader::loadRgbdGpuFromMats(cloud2, f2,
+                                    DepthIntrinsics2, RGBIntrinsics2, R_Cam2, T_Cam2, rgbToWorldR2, rgbToWorldT2, true);
+                        } else {
+                            // Fallback: synchronous load (first frame or prefetch miss)
+                            if (prefetchLaunched) { prefetch1.wait(); prefetch2.wait(); prefetchLaunched = false; }
+
+                            if (playbackFrame < seq1.totalFrames) {
+                                if (useGpuLoad)
+                                    PointCloudLoader::loadRgbdGpu(cloud, seq1.depthPaths[playbackFrame], seq1.colorPaths[playbackFrame],
+                                        DepthIntrinsics1, RGBIntrinsics1, R_Cam1, T_Cam1, rgbToWorldR1, rgbToWorldT1, true);
+                                else
+                                    PointCloudLoader::loadRgbd(cloud, seq1.depthPaths[playbackFrame], seq1.colorPaths[playbackFrame],
+                                        DepthIntrinsics1, RGBIntrinsics1, R_Cam1, T_Cam1, rgbToWorldR1, rgbToWorldT1, true);
                             }
-                        }
-                        if (playbackFrame < seq2.totalFrames) {
-                            if (useGpuLoad) {
-                                PointCloudLoader::loadRgbdGpu(cloud2, seq2.depthPaths[playbackFrame], seq2.colorPaths[playbackFrame],
-                                    DepthIntrinsics2, RGBIntrinsics2, R_Cam2, T_Cam2, rgbToWorldR2, rgbToWorldT2, true);
-                            } else {
-                                PointCloudLoader::loadRgbd(cloud2, seq2.depthPaths[playbackFrame], seq2.colorPaths[playbackFrame],
-                                    DepthIntrinsics2, RGBIntrinsics2, R_Cam2, T_Cam2, rgbToWorldR2, rgbToWorldT2, true);
+                            if (playbackFrame < seq2.totalFrames) {
+                                if (useGpuLoad)
+                                    PointCloudLoader::loadRgbdGpu(cloud2, seq2.depthPaths[playbackFrame], seq2.colorPaths[playbackFrame],
+                                        DepthIntrinsics2, RGBIntrinsics2, R_Cam2, T_Cam2, rgbToWorldR2, rgbToWorldT2, true);
+                                else
+                                    PointCloudLoader::loadRgbd(cloud2, seq2.depthPaths[playbackFrame], seq2.colorPaths[playbackFrame],
+                                        DepthIntrinsics2, RGBIntrinsics2, R_Cam2, T_Cam2, rgbToWorldR2, rgbToWorldT2, true);
                             }
                         }
                         rebuildMerged();
@@ -713,15 +753,25 @@ void Window::mainloop(int argc, char** argv) {
                         isPlaying = false;
                     }
 
+                    auto t1 = std::chrono::high_resolution_clock::now();
+                    frameProcTimeMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+                    actualFps = 1000.0 / frameProcTimeMs;
+
                     // Advance frame
                     playbackFrame++;
                     if (playbackFrame >= minFrames) {
-                        if (loopPlayback) {
-                            playbackFrame = 0;
-                        } else {
-                            playbackFrame = minFrames - 1;
-                            isPlaying = false;
-                        }
+                        if (loopPlayback) playbackFrame = 0;
+                        else { playbackFrame = minFrames - 1; isPlaying = false; }
+                    }
+
+                    // Kick off async pre-decode for the NEXT frame while we render this one
+                    if (useGpuLoad && isPlaying && playbackFrame < minFrames) {
+                        prefetch1 = PointCloudLoader::preloadFrameAsync(
+                            seq1.depthPaths[playbackFrame], seq1.colorPaths[playbackFrame]);
+                        prefetch2 = PointCloudLoader::preloadFrameAsync(
+                            seq2.depthPaths[playbackFrame], seq2.colorPaths[playbackFrame]);
+                        prefetchLaunched = true;
+                        prefetchedFrameIdx = playbackFrame;
                     }
                 }
             }

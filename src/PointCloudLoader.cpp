@@ -936,6 +936,38 @@ RgbdFrameSequence PointCloudLoader::discoverFrameSequence(
     return seq;
 }
 
+std::future<PreloadedFrame> PointCloudLoader::preloadFrameAsync(
+    const std::string& depthPath, const std::string& colorPath)
+{
+    return std::async(std::launch::async, [depthPath, colorPath]() -> PreloadedFrame {
+        PreloadedFrame f;
+        auto depth = std::make_shared<cv::Mat>(cv::imread(depthPath, cv::IMREAD_ANYDEPTH));
+        auto color = std::make_shared<cv::Mat>(cv::imread(colorPath, cv::IMREAD_COLOR));
+        f.valid = !depth->empty() && !color->empty();
+        f.depth = depth;
+        f.color = color;
+        return f;
+    });
+}
+
+void PointCloudLoader::loadRgbdGpuFromMats(GaussianCloud& dst,
+    const PreloadedFrame& frame,
+    const glm::mat3& depth_intrinsics,
+    const glm::mat3& rgb_intrinsics,
+    const glm::mat3& R,
+    const glm::vec3& T,
+    const glm::mat3& rgbToWorldR,
+    const glm::vec3& rgbToWorldT,
+    bool useCudaGLInterop)
+{
+    if (!frame.valid || !frame.depth || !frame.color) {
+        std::cerr << "Error: Invalid PreloadedFrame passed to loadRgbdGpuFromMats!" << std::endl;
+        return;
+    }
+    loadRgbdGpuInternal(dst, frame.depth.get(), frame.color.get(),
+        depth_intrinsics, rgb_intrinsics, R, T, rgbToWorldR, rgbToWorldT, useCudaGLInterop);
+}
+
 void PointCloudLoader::loadRgbdGpu(GaussianCloud& dst, const std::string& depth_path,
     const std::string& rgb_path,
     const glm::mat3& depth_intrinsics,
@@ -946,12 +978,33 @@ void PointCloudLoader::loadRgbdGpu(GaussianCloud& dst, const std::string& depth_
     const glm::vec3& rgbToWorldT,
     bool useCudaGLInterop)
 {
-    // Load depth and RGB images using OpenCV
     cv::Mat depth_image = cv::imread(depth_path, cv::IMREAD_ANYDEPTH);
     cv::Mat rgb_image = cv::imread(rgb_path, cv::IMREAD_COLOR);
 
     if (depth_image.empty() || rgb_image.empty()) {
         std::cerr << "Error: Could not load images!" << std::endl;
+        return;
+    }
+
+    loadRgbdGpuInternal(dst, &depth_image, &rgb_image,
+        depth_intrinsics, rgb_intrinsics, R, T, rgbToWorldR, rgbToWorldT, useCudaGLInterop);
+}
+
+void PointCloudLoader::loadRgbdGpuInternal(GaussianCloud& dst,
+    const void* depth_mat_ptr, const void* rgb_mat_ptr,
+    const glm::mat3& depth_intrinsics,
+    const glm::mat3& rgb_intrinsics,
+    const glm::mat3& R,
+    const glm::vec3& T,
+    const glm::mat3& rgbToWorldR,
+    const glm::vec3& rgbToWorldT,
+    bool useCudaGLInterop)
+{
+    const cv::Mat& depth_image = *static_cast<const cv::Mat*>(depth_mat_ptr);
+    const cv::Mat& rgb_image = *static_cast<const cv::Mat*>(rgb_mat_ptr);
+
+    if (depth_image.empty() || rgb_image.empty()) {
+        std::cerr << "Error: Empty images passed to loadRgbdGpuInternal!" << std::endl;
         return;
     }
 
@@ -969,9 +1022,9 @@ void PointCloudLoader::loadRgbdGpu(GaussianCloud& dst, const std::string& depth_
     static float* s_d_covX = nullptr;
     static float* s_d_covY = nullptr;
     static float* s_d_covZ = nullptr;
-    static int s_alloc_pixels = 0;   // depth pixel count last allocated for
-    static int s_alloc_rgb = 0;      // rgb byte count last allocated for
-    static int s_alloc_cov = 0;      // covariance point count last allocated for
+    static int s_alloc_pixels = 0;
+    static int s_alloc_rgb = 0;
+    static int s_alloc_cov = 0;
 
     // Re-allocate scratch input/output only when image dimensions change
     if (total_pixels != s_alloc_pixels) {
@@ -1001,7 +1054,7 @@ void PointCloudLoader::loadRgbdGpu(GaussianCloud& dst, const std::string& depth_
         s_alloc_rgb = rgb_bytes;
     }
 
-    // Upload images to GPU (the only mandatory per-frame memcpy)
+    // Upload images to GPU
     cudaMemcpy(s_d_depth, depth_image.data, total_pixels * sizeof(uint16_t), cudaMemcpyHostToDevice);
     cudaMemcpy(s_d_rgb, rgb_image.data, rgb_bytes, cudaMemcpyHostToDevice);
 
