@@ -880,6 +880,10 @@ void PointCloudLoader::merge(GaussianCloud& dst,
         mergeVec4Buffer(dst.covariance[row], covA, nA, covB, nB, cpu);
     }
 
+    // Merge per-gaussian scale_neus buffer
+    mergeFloatBuffer(dst.scale_neus, hasA ? a.scale_neus : s_empty, nA,
+        hasB ? b.scale_neus : s_empty, nB, dst.scale_neus_cpu);
+
     // --- Derived / scratch buffers: only reallocate when total changes ---
     if (!sameSize) {
         dst.visible_gaussians_counter.storeData(nullptr, 1, sizeof(int), 0, useCudaGLInterop, false, true);
@@ -892,6 +896,46 @@ void PointCloudLoader::merge(GaussianCloud& dst,
         dst.conic_opacity.storeData(nullptr, total, 4 * sizeof(float), 0, useCudaGLInterop, true, true);
         dst.eigen_vecs.storeData(nullptr, total, 2 * sizeof(float), 0, useCudaGLInterop, true, true);
         dst.predicted_colors.storeData(nullptr, total, 4 * sizeof(float), 0, useCudaGLInterop, true, true);
+
+        dst.dLoss_dpredicted_colors.storeData(nullptr, total, 4 * sizeof(__half), 0, useCudaGLInterop, true, true);
+        dst.dLoss_dconic_opacity.storeData(nullptr, total, 4 * sizeof(__half), 0, useCudaGLInterop, true, true);
+
+        // Free and reallocate raw CUDA buffers
+        dst.freeRawCudaBuffers();
+
+        cudaMalloc((void**)&dst.threshold_sdf, 2 * sizeof(float));
+        cudaMalloc((void**)&dst.d_flags, total * sizeof(unsigned char));
+        cudaMalloc((void**)&dst.d_adjacencies, (dst.KVal + dst.KVal_d) * total * sizeof(uint));
+        cudaMalloc((void**)&dst.d_adjacencies_delaunay, dst.KVal_d * total * sizeof(uint));
+
+        cudaMalloc((void**)&dst.pts_f3, 3 * total * sizeof(float));
+        cudaMalloc((void**)&dst.morton_codes, total * sizeof(uint64_t));
+        cudaMalloc((void**)&dst.sorted_indices, total * sizeof(uint32_t));
+        cudaMalloc((void**)&dst.indices_out, dst.KVal * total * sizeof(uint32_t));
+        cudaMalloc((void**)&dst.distances_out, dst.KVal * total * sizeof(float));
+        cudaMalloc((void**)&dst.n_neighbors_out, total * sizeof(uint32_t));
+
+        for (int k = 0; k < 3; k++) {
+            float* tmp;
+            float* d_m_tmp;
+            float* d_v_tmp;
+            cudaMalloc((void**)&tmp, 16 * total * sizeof(float));
+            cudaMalloc((void**)&d_m_tmp, 16 * total * sizeof(float));
+            cudaMalloc((void**)&d_v_tmp, 16 * total * sizeof(float));
+            cudaMemset(d_m_tmp, 0, 16 * total * sizeof(float));
+            cudaMemset(d_v_tmp, 0, 16 * total * sizeof(float));
+            dst.dLoss_sh_coeffs.push_back(tmp);
+            dst.d_m_sh_coeff.push_back(d_m_tmp);
+            dst.d_v_sh_coeff.push_back(d_v_tmp);
+        }
+
+        cudaMalloc((void**)&dst.dLoss_SDF, total * sizeof(float));
+        cudaMalloc((void**)&dst.d_m_sdf, total * sizeof(float));
+        cudaMalloc((void**)&dst.d_v_sdf, total * sizeof(float));
+        cudaMemset(dst.d_m_sdf, 0, total * sizeof(float));
+        cudaMemset(dst.d_v_sdf, 0, total * sizeof(float));
+
+        dst.fork_pts.resize(total);
     }
 
     dst.initialized = true;
@@ -1017,30 +1061,6 @@ void PointCloudLoader::loadRgbdGpu(GaussianCloud& dst, const std::string& depth_
 {
     cv::Mat depth_image = cv::imread(depth_path, cv::IMREAD_ANYDEPTH);
     cv::Mat rgb_image = cv::imread(rgb_path, cv::IMREAD_COLOR);
-    // 2.4a scale_neus
-    std::vector<float> scaleNeusA, scaleNeusB;
-    if (hasA) scaleNeusA = fetchFloat(a, a.scale_neus_cpu, a.scale_neus, nA);
-    if (hasB) scaleNeusB = fetchFloat(b, b.scale_neus_cpu, b.scale_neus, nB);
-
-    dst.scale_neus_cpu.clear();
-    dst.scale_neus_cpu.reserve(dst.num_gaussians);
-    if (hasA && !scaleNeusA.empty()) dst.scale_neus_cpu.insert(dst.scale_neus_cpu.end(), scaleNeusA.begin(), scaleNeusA.end());
-    else if (hasA) dst.scale_neus_cpu.insert(dst.scale_neus_cpu.end(), nA, 1.0f);
-
-    if (hasB && !scaleNeusB.empty()) dst.scale_neus_cpu.insert(dst.scale_neus_cpu.end(), scaleNeusB.begin(), scaleNeusB.end());
-    else if (hasB) dst.scale_neus_cpu.insert(dst.scale_neus_cpu.end(), nB, 1.0f);
-
-    dst.scale_neus.storeData(dst.scale_neus_cpu.data(), dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, false, true);
-
-    // 2.4 SH Coeffs
-    for (int ch = 0; ch < 3; ++ch) {
-        std::vector<float> merged(16 * dst.num_gaussians);
-        size_t offset = 0;
-
-    if (depth_image.empty() || rgb_image.empty()) {
-        std::cerr << "Error: Could not load images!" << std::endl;
-        return;
-    }
 
     loadRgbdGpuInternal(dst, &depth_image, &rgb_image,
         depth_intrinsics, rgb_intrinsics, R, T, rgbToWorldR, rgbToWorldT, useCudaGLInterop);
@@ -1258,7 +1278,9 @@ void PointCloudLoader::loadRgbdGpuInternal(GaussianCloud& dst,
         cudaMalloc((void**)&dst.n_neighbors_out, num_valid * sizeof(uint32_t));
 
         for (int k = 0; k < 3; k++) {
-            float* tmp;     float* d_m_tmp;     float* d_v_tmp;
+            float* tmp;
+            float* d_m_tmp;
+            float* d_v_tmp;
             cudaMalloc((void**)&tmp, 16 * num_valid * sizeof(float));
             cudaMalloc((void**)&d_m_tmp, 16 * num_valid * sizeof(float));
             cudaMalloc((void**)&d_v_tmp, 16 * num_valid * sizeof(float));

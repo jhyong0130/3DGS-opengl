@@ -823,6 +823,7 @@ void GaussianCloud::clearCpuData() {
     rotations_cpu.clear();   rotations_cpu.shrink_to_fit();
     opacities_cpu.clear();   opacities_cpu.shrink_to_fit();
     sdf_cpu.clear();         sdf_cpu.shrink_to_fit();
+    scale_neus_cpu.clear();  scale_neus_cpu.shrink_to_fit();
 }
 
 void GaussianCloud::GUI(Camera& camera) {
