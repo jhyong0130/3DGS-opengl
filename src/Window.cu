@@ -26,6 +26,7 @@
 
 #include <thread>
 #include <chrono>
+#include <filesystem>
 
 static void error_callback(int error, const char *description) {
     fprintf(stderr, "Error: %s\n", description);
@@ -259,50 +260,41 @@ void Window::mainloop(int argc, char** argv) {
     std::string selectedColorPath2;
 
     // Fixed paths for RGBD images
-    const std::string fixedDepthPath1 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap7\\cam0\\depth\\frame_000040.png";
-    const std::string fixedColorPath1 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap7\\cam0\\color\\frame_000040.png";
-    const std::string fixedDepthPath2 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap7\\cam2\\depth\\frame_000040.png";
-    const std::string fixedColorPath2 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap7\\cam2\\color\\frame_000040.png";
+    const std::string fixedDepthPath1 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap1\\cam0\\depth\\frame_000040.png";
+    const std::string fixedColorPath1 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap1\\cam0\\color\\frame_000040.png";
+    const std::string fixedDepthPath2 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap1\\cam2\\depth\\frame_000040.png";
+    const std::string fixedColorPath2 = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap1\\cam2\\color\\frame_000040.png";
 
     glm::mat3 rgbToWorldR1 = {
-    0.993817f,  -0.0116581f, -0.110415f,
-   -0.00283812f, 0.99148f,  -0.13023f,
-    0.110993f,   0.129738f,  0.985317f
+    0.99902f, -0.0146442f, -0.0417634f,
+    0.00912435f, 0.99151f, -0.129354f,
+    0.0433062f, 0.128846f, 0.990672f
     };
     glm::vec3 rgbToWorldT1 = {
-        295.42f, 494.203f, -955.485f
+       255.531f, 162.51f, -1341.79f
     };
-    rgbToWorldT1 = rgbToWorldR1 * rgbToWorldT1;
+    rgbToWorldT1 = rgbToWorldR1 * rgbToWorldT1; // Camera coordinates to world
 
     glm::mat3 rgbToWorldR2 = {
-       -0.99623f,   0.0142209f,  0.0855825f,
-        0.0153407f, 0.999805f,   0.0124408f,
-       -0.0853889f, 0.0137068f, -0.996253f
+        -0.997941f, -0.00938262f, 0.0634527f,
+        -8.14641e-05f, 0.989427f, 0.145024f,
+        -0.0641427f, 0.14472f, -0.98739f
     };
     glm::vec3 rgbToWorldT2 = {
-        -58.2916f, 467.947f, -1257.7f
+        -132.151f, 189.306f, -1376.99f
     };
-    rgbToWorldT2 = rgbToWorldR2 * rgbToWorldT2;
+    rgbToWorldT2 = rgbToWorldR2 * rgbToWorldT2; // Camera coordinates to world
 
-    glm::mat3 rgbToWorldR3 = {
-        0.80692f,   -0.0238006f, -0.590182f,
-        0.0173368f,  0.999712f,  -0.0166124f,
-        0.590407f,   0.00317296f, 0.807099f
-    };
-    glm::vec3 rgbToWorldT3 = {
-        234.917f, 447.515f, -1427.77f
-    };
-    rgbToWorldT3 = rgbToWorldR3 * rgbToWorldT3;
-
+    // Shared intrinsics (adjust to your sensors)
     glm::mat3 DepthIntrinsics1 = glm::mat3(
         503.272f, 0.0f, 0.0f,
         0.0f, 503.428f, 0.0f,
         311.493f, 341.854f, 1.0f
     );
     glm::mat3 RGBIntrinsics1 = glm::mat3(
-        610.737f, 0.0f, 0.0f,
-        0.0f, 610.621f, 0.0f,
-        639.815f, 363.492f, 1.0f
+        916.106f, 0.0f, 0.0f,
+        0.0f, 915.931f, 0.0f,
+        959.972f, 545.488f, 1.0f
     );
 
     glm::mat3 DepthIntrinsics2 = glm::mat3(
@@ -311,39 +303,94 @@ void Window::mainloop(int argc, char** argv) {
         324.749f, 336.353f, 1.0f
     );
     glm::mat3 RGBIntrinsics2 = glm::mat3(
-        605.128f, 0.0f, 0.0f,
-        0.0f, 605.007f, 0.0f,
-        638.341f, 367.7f, 1.0f
+        907.692f, 0.0f, 0.0f,
+        0.0f, 907.511f, 0.0f,
+        957.761f, 551.799f, 1.0f
     );
 
+    // Rotation and Translation matrix from depth to RGB camera
+    glm::mat3 R_Cam1 = glm::mat3(
+        0.999983f, -0.00586679f, 0.000380531f,
+        0.00587709f, 0.995844f, -0.0908823f,
+        0.000154238f, 0.090883f, 0.995862f
+    );
+    // Translation vector from depth to RGB camera (in mm)
+    glm::vec3 T_Cam1 = glm::vec3(
+        -31.9808f,
+        -2.14291f,
+        4.06966f
+    );
+
+    // Rotation matrix from depth to RGB camera
+    glm::mat3 R_Cam2 = glm::mat3(
+        0.999992f, -0.00382051f, 0.00112496f,
+        0.0039048f, 0.9961f, -0.0881453,
+        -0.000783808f, 0.088149f, 0.996107f
+    );
+
+    // Translation vector from depth to RGB camera (in mm)
+    glm::vec3 T_Cam2 = glm::vec3(
+        -32.0719f,
+        -2.0198f,
+        4.02698f
+    );
+
+    // ============================================
+    // Third camera parameters for ground truth export
+    // ============================================
+    // Third camera RGB intrinsics (replace with your actual values)
     glm::mat3 RGBIntrinsics3 = glm::mat3(
         609.147f, 0.0f, 0.0f,
         0.0f, 609.155f, 0.0f,
         633.681f, 362.512f, 1.0f
     );
 
-    glm::mat3 R_Cam1 = glm::mat3(
-        0.999983f, -0.00586679f, 0.000380531f,
-        0.00587709f, 0.995844f, -0.0908823f,
-        0.000154238f, 0.090883f, 0.995862f
-    );
-    glm::vec3 T_Cam1 = glm::vec3(
-        -31.9808f, -2.14291f, 4.06966f
+    // Third camera extrinsics: world-to-camera rotation and translation
+    glm::mat3 rgbToWorldR3 = glm::mat3(
+        0.818993f, 0.0140402f, -0.573631f,
+        0.016921f, 0.998675f, 0.0486023f,
+        0.573554f, -0.0495114f, 0.81767f
     );
 
-    glm::mat3 R_Cam2 = glm::mat3(
-        0.999992f, -0.00382051f, 0.00112496f,
-        0.0039048f, 0.9961f, -0.0881453f,
-        -0.000783808f, 0.088149f, 0.996107f
+    glm::vec3 rgbToWorldT3 = glm::vec3(
+        351.823f,
+        448.301f,
+        -1477.75f
     );
-    glm::vec3 T_Cam2 = glm::vec3(
-        -32.0719f, -2.0198f, 4.02698f
-    );
+    rgbToWorldT3 = rgbToWorldR3 * rgbToWorldT3;
 
     // Export settings
     int exportWidth = 1280;
     int exportHeight = 720;
     std::string exportPath = "C:\\Users\\b25.jun\\Desktop\\dataset\\results";
+
+    // ============================================
+    // Video Playback State
+    // ============================================
+    RgbdFrameSequence seq1, seq2;
+    bool sequencesDiscovered = false;
+    bool useGpuLoad = true;
+
+    // Base directories for frame sequences
+    const std::string basePath1_depth = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap1\\cam0\\depth";
+    const std::string basePath1_color = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap1\\cam0\\color";
+    const std::string basePath2_depth = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap1\\cam2\\depth";
+    const std::string basePath2_color = "C:\\Users\\b25.jun\\Desktop\\dataset\\experiment-data\\cap1\\cam2\\color";
+
+    // Playback timing
+    double lastPlaybackTime = glfwGetTime();
+    int playbackFrame = 0;
+    bool isPlaying = false;
+    float playbackFps = 30.0f;
+    bool loopPlayback = true;
+    
+    std::future<PreloadedFrame> prefetch1, prefetch2;
+    bool prefetchLaunched = false;
+    int  prefetchedFrameIdx = -1;
+
+    // Per-frame timing for FPS display
+    double frameProcTimeMs = 0.0;
+    double actualFps = 0.0;
 
     // Rebuild merged on demand
     auto rebuildMerged = [&]() {
@@ -550,6 +597,186 @@ void Window::mainloop(int argc, char** argv) {
             }
         }
 
+        // ============================================
+        // Video Playback Controls
+        // ============================================
+        ImGui::Separator();
+        ImGui::Text("Video Playback");
+
+        ImGui::Checkbox("Use GPU Loading", &useGpuLoad);
+
+        if (!sequencesDiscovered) {
+            if (ImGui::Button("Discover Frame Sequences")) {
+                seq1 = PointCloudLoader::discoverFrameSequence(basePath1_depth, basePath1_color);
+                seq2 = PointCloudLoader::discoverFrameSequence(basePath2_depth, basePath2_color);
+                sequencesDiscovered = true;
+                playbackFrame = 0;
+                int minFrames = std::min(seq1.totalFrames, seq2.totalFrames);
+                std::cout << "Sequences discovered: " << minFrames << " common frames" << std::endl;
+            }
+        }
+
+        if (sequencesDiscovered) {
+            int maxFrames = std::max(seq1.totalFrames, seq2.totalFrames);
+            int minFrames = std::min(seq1.totalFrames, seq2.totalFrames);
+            ImGui::Text("Cam0: %d frames, Cam2: %d frames", seq1.totalFrames, seq2.totalFrames);
+
+            // Playback controls
+            if (isPlaying) {
+                if (ImGui::Button("Pause")) {
+                    isPlaying = false;
+                }
+            } else {
+                if (ImGui::Button("Play")) {
+                    isPlaying = true;
+                    lastPlaybackTime = glfwGetTime();
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Stop")) {
+                isPlaying = false;
+                playbackFrame = 0;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("|<")) {
+                playbackFrame = 0;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("<")) {
+                playbackFrame = std::max(0, playbackFrame - 1);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(">")) {
+                playbackFrame = std::min(minFrames - 1, playbackFrame + 1);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(">|")) {
+                playbackFrame = minFrames - 1;
+            }
+
+            ImGui::SliderInt("Frame", &playbackFrame, 0, minFrames - 1);
+            ImGui::SliderFloat("FPS", &playbackFps, 1.0f, 60.0f, "%.1f");
+            ImGui::Checkbox("Loop", &loopPlayback);
+
+            ImGui::Text("Current Frame: %d / %d", playbackFrame, minFrames);
+
+            // Show timing info
+            if (isPlaying || frameProcTimeMs > 0) {
+                ImGui::Text("Processing: %.1f ms/frame  (max %.1f FPS)",
+                    frameProcTimeMs, actualFps);
+                
+                float targetInterval = 1000.0f / playbackFps;
+                if (frameProcTimeMs > targetInterval) {
+                    ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1),
+                        "Too slow for %.0f FPS target (need < %.1f ms)", playbackFps, targetInterval);
+                } else {
+                    ImGui::TextColored(ImVec4(0.3f, 1, 0.3f, 1),
+                        "Can sustain %.0f FPS (%.1f ms headroom)",
+                        playbackFps, targetInterval - (float)frameProcTimeMs);
+                }
+            }
+
+            // Load single frame button
+            if (ImGui::Button("Load Current Frame")) {
+                try {
+                    if (playbackFrame < seq1.totalFrames) {
+                        if (useGpuLoad) {
+                            PointCloudLoader::loadRgbdGpu(cloud, seq1.depthPaths[playbackFrame], seq1.colorPaths[playbackFrame],
+                                DepthIntrinsics1, RGBIntrinsics1, R_Cam1, T_Cam1, rgbToWorldR1, rgbToWorldT1, true);
+                        } else {
+                            PointCloudLoader::loadRgbd(cloud, seq1.depthPaths[playbackFrame], seq1.colorPaths[playbackFrame],
+                                DepthIntrinsics1, RGBIntrinsics1, R_Cam1, T_Cam1, rgbToWorldR1, rgbToWorldT1, true);
+                        }
+                    }
+                    if (playbackFrame < seq2.totalFrames) {
+                        if (useGpuLoad) {
+                            PointCloudLoader::loadRgbdGpu(cloud2, seq2.depthPaths[playbackFrame], seq2.colorPaths[playbackFrame],
+                                DepthIntrinsics2, RGBIntrinsics2, R_Cam2, T_Cam2, rgbToWorldR2, rgbToWorldT2, true);
+                        } else {
+                            PointCloudLoader::loadRgbd(cloud2, seq2.depthPaths[playbackFrame], seq2.colorPaths[playbackFrame],
+                                DepthIntrinsics2, RGBIntrinsics2, R_Cam2, T_Cam2, rgbToWorldR2, rgbToWorldT2, true);
+                        }
+                    }
+                    rebuildMerged();
+                }
+                catch (const std::exception& e) {
+                    std::cerr << "Error loading frame " << playbackFrame << ": " << e.what() << std::endl;
+                }
+            }
+
+            // Auto-advance during playback
+            if (isPlaying) {
+                double currentTime = glfwGetTime();
+                double frameInterval = 1.0 / (double)playbackFps;
+                if (currentTime - lastPlaybackTime >= frameInterval) {
+                    lastPlaybackTime = currentTime;
+                    auto t0 = std::chrono::high_resolution_clock::now();
+
+                    try {
+                        // Use pre-fetched frames if they match the current playback index
+                        if (useGpuLoad && prefetchLaunched && prefetchedFrameIdx == playbackFrame) {
+                            PreloadedFrame f1 = prefetch1.get();
+                            PreloadedFrame f2 = prefetch2.get();
+                            prefetchLaunched = false;
+
+                            if (f1.valid && playbackFrame < seq1.totalFrames)
+                                PointCloudLoader::loadRgbdGpuFromMats(cloud, f1,
+                                    DepthIntrinsics1, RGBIntrinsics1, R_Cam1, T_Cam1, rgbToWorldR1, rgbToWorldT1, true);
+                            if (f2.valid && playbackFrame < seq2.totalFrames)
+                                PointCloudLoader::loadRgbdGpuFromMats(cloud2, f2,
+                                    DepthIntrinsics2, RGBIntrinsics2, R_Cam2, T_Cam2, rgbToWorldR2, rgbToWorldT2, true);
+                        } else {
+                            // Fallback: synchronous load (first frame or prefetch miss)
+                            if (prefetchLaunched) { prefetch1.wait(); prefetch2.wait(); prefetchLaunched = false; }
+
+                            if (playbackFrame < seq1.totalFrames) {
+                                if (useGpuLoad)
+                                    PointCloudLoader::loadRgbdGpu(cloud, seq1.depthPaths[playbackFrame], seq1.colorPaths[playbackFrame],
+                                        DepthIntrinsics1, RGBIntrinsics1, R_Cam1, T_Cam1, rgbToWorldR1, rgbToWorldT1, true);
+                                else
+                                    PointCloudLoader::loadRgbd(cloud, seq1.depthPaths[playbackFrame], seq1.colorPaths[playbackFrame],
+                                        DepthIntrinsics1, RGBIntrinsics1, R_Cam1, T_Cam1, rgbToWorldR1, rgbToWorldT1, true);
+                            }
+                            if (playbackFrame < seq2.totalFrames) {
+                                if (useGpuLoad)
+                                    PointCloudLoader::loadRgbdGpu(cloud2, seq2.depthPaths[playbackFrame], seq2.colorPaths[playbackFrame],
+                                        DepthIntrinsics2, RGBIntrinsics2, R_Cam2, T_Cam2, rgbToWorldR2, rgbToWorldT2, true);
+                                else
+                                    PointCloudLoader::loadRgbd(cloud2, seq2.depthPaths[playbackFrame], seq2.colorPaths[playbackFrame],
+                                        DepthIntrinsics2, RGBIntrinsics2, R_Cam2, T_Cam2, rgbToWorldR2, rgbToWorldT2, true);
+                            }
+                        }
+                        rebuildMerged();
+                    }
+                    catch (const std::exception& e) {
+                        std::cerr << "Error loading frame " << playbackFrame << ": " << e.what() << std::endl;
+                        isPlaying = false;
+                    }
+
+                    auto t1 = std::chrono::high_resolution_clock::now();
+                    frameProcTimeMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+                    actualFps = 1000.0 / frameProcTimeMs;
+
+                    // Advance frame
+                    playbackFrame++;
+                    if (playbackFrame >= minFrames) {
+                        if (loopPlayback) playbackFrame = 0;
+                        else { playbackFrame = minFrames - 1; isPlaying = false; }
+                    }
+
+                    // Kick off async pre-decode for the NEXT frame while we render this one
+                    if (useGpuLoad && isPlaying && playbackFrame < minFrames) {
+                        prefetch1 = PointCloudLoader::preloadFrameAsync(
+                            seq1.depthPaths[playbackFrame], seq1.colorPaths[playbackFrame]);
+                        prefetch2 = PointCloudLoader::preloadFrameAsync(
+                            seq2.depthPaths[playbackFrame], seq2.colorPaths[playbackFrame]);
+                        prefetchLaunched = true;
+                        prefetchedFrameIdx = playbackFrame;
+                    }
+                }
+            }
+        }
+
         // Handle dialogs for Cloud 1
         if (openDepthDialog1) {
             if (ImGuiFileDialog::Instance()->Display("ChooseDepthDlgKey1")) {
@@ -750,7 +977,10 @@ void Window::mainloop(int argc, char** argv) {
         glfwSwapBuffers(this->w);
         glfwPollEvents();
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        // Only sleep if not playing video (to maintain real-time playback)
+        if (!isPlaying) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
 
         if (windowHovered) {
             scroll = 0;

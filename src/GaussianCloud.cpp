@@ -785,6 +785,47 @@ void GaussianCloud::initShaders() {
     counter.storeData(nullptr, 1, sizeof(int), GL_MAP_READ_BIT | GL_CLIENT_STORAGE_BIT, false, true, true);
 }
 
+void GaussianCloud::freeRawCudaBuffers() {
+    // Free gradient buffers
+    for (auto p : dLoss_sh_coeffs) { if (p) cudaFree(p); }
+    dLoss_sh_coeffs.clear();
+    for (auto p : d_m_sh_coeff) { if (p) cudaFree(p); }
+    d_m_sh_coeff.clear();
+    for (auto p : d_v_sh_coeff) { if (p) cudaFree(p); }
+    d_v_sh_coeff.clear();
+
+    if (dLoss_SDF)   { cudaFree(dLoss_SDF);   dLoss_SDF = nullptr; }
+    if (d_m_sdf)     { cudaFree(d_m_sdf);     d_m_sdf = nullptr; }
+    if (d_v_sdf)     { cudaFree(d_v_sdf);     d_v_sdf = nullptr; }
+
+    // Free KNN / spatial buffers
+    if (pts_f3)          { cudaFree(pts_f3);          pts_f3 = nullptr; }
+    if (morton_codes)    { cudaFree(morton_codes);    morton_codes = nullptr; }
+    if (sorted_indices)  { cudaFree(sorted_indices);  sorted_indices = nullptr; }
+    if (indices_out)     { cudaFree(indices_out);     indices_out = nullptr; }
+    if (distances_out)   { cudaFree(distances_out);   distances_out = nullptr; }
+    if (n_neighbors_out) { cudaFree(n_neighbors_out); n_neighbors_out = nullptr; }
+
+    // Free CVT / adjacency buffers
+    if (threshold_sdf)          { cudaFree(threshold_sdf);          threshold_sdf = nullptr; }
+    if (d_flags)                { cudaFree(d_flags);                d_flags = nullptr; }
+    if (d_adjacencies)          { cudaFree(d_adjacencies);          d_adjacencies = nullptr; }
+    if (d_adjacencies_delaunay) { cudaFree(d_adjacencies_delaunay); d_adjacencies_delaunay = nullptr; }
+}
+
+void GaussianCloud::clearCpuData() {
+    positions_cpu.clear();   positions_cpu.shrink_to_fit();
+    normals_cpu.clear();     normals_cpu.shrink_to_fit();
+    covX_cpu.clear();        covX_cpu.shrink_to_fit();
+    covY_cpu.clear();        covY_cpu.shrink_to_fit();
+    covZ_cpu.clear();        covZ_cpu.shrink_to_fit();
+    scales_cpu.clear();      scales_cpu.shrink_to_fit();
+    rotations_cpu.clear();   rotations_cpu.shrink_to_fit();
+    opacities_cpu.clear();   opacities_cpu.shrink_to_fit();
+    sdf_cpu.clear();         sdf_cpu.shrink_to_fit();
+    scale_neus_cpu.clear();  scale_neus_cpu.shrink_to_fit();
+}
+
 void GaussianCloud::GUI(Camera& camera) {
     ImGui::PushID(this);
     const float frac = num_visible_gaussians / float(num_gaussians) * 100.0f;

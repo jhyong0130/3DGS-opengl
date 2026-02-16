@@ -22,9 +22,10 @@ public:
 
     void reset();
 
-    void storeData(const void* data, size_t numElements, size_t elementSize, int flags=0, bool useCudaGLInterop=false, bool init_zero=false, bool makeResident=true);
+    void storeData(const void* data, size_t numElements, size_t elementSize, int flags = 0, bool useCudaGLInterop = false, bool init_zero = false, bool makeResident = true);
+    void storeOrUpdateData(const void* data, size_t numElements, size_t elementSize, int flags = 0, bool useCudaGLInterop = false, bool init_zero = false, bool makeResident = true);
     void updateData(const void* data, size_t numElements, size_t elementSize, size_t elementOffset);
-    void clearData(GLenum internalformat, GLenum format, GLenum type, const void *data);
+    void clearData(GLenum internalformat, GLenum format, GLenum type, const void* data);
 
     GLuint getID() const{
         return ID;

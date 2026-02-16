@@ -111,6 +111,37 @@ void GLBuffer::storeData(const void* data, size_t numElements, size_t elementSiz
 
 }
 
+void GLBuffer::storeOrUpdateData(const void* data, size_t numElements, size_t elementSize, int flags, bool useCudaGLInterop,
+    bool init_zero, bool makeResident) {
+    // If the buffer already exists with matching size and settings, update in-place
+    if (initialized &&
+        this->numElements == (int64_t)numElements &&
+        this->elementSize == (uint64_t)elementSize &&
+        this->useCudaGL_interop == useCudaGLInterop &&
+        this->flags == flags) {
+
+        if (data != nullptr) {
+            if (useCudaGLInterop && cuda_ptr) {
+                // For CUDA-interop buffers, use cudaMemcpy to update directly on GPU
+                checkCudaErrors(cudaMemcpy(cuda_ptr, data, numElements * elementSize, cudaMemcpyHostToDevice));
+            } else {
+                // For non-interop buffers, use GL sub-data update
+                glNamedBufferSubData(ID, 0, numElements * elementSize, data);
+            }
+        }
+
+        if (init_zero) {
+            int zero = 0;
+            glClearNamedBufferData(ID, GL_R32I, GL_RED_INTEGER, GL_INT, &zero);
+        }
+
+        return;
+    }
+
+    // Otherwise fall back to full re-creation
+    storeData(data, numElements, elementSize, flags, useCudaGLInterop, init_zero, makeResident);
+}
+
 void GLBuffer::bindAs(GLuint type) {
     glBindBuffer(type, ID);
 }
