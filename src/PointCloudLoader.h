@@ -33,7 +33,6 @@ struct PreloadedFrame {
 
 class PointCloudLoader {
 public:
-    static void load(GaussianCloud& dst, const std::string& path, bool cudaGLInterop=true);
     static void loadRdm(GaussianCloud& dst, int nb_pts, bool cudaGLInterop = true);
     static void loadRgbd(GaussianCloud& dst, const std::string& depth_path,
         const std::string& rgb_path,

@@ -55,7 +55,7 @@ int main(int argc, char* argv[]){
     bool error = false;
 
     int samples = 1;
-    Window w(std::string("CVTSPLAT"), samples);
+    Window w(std::string("3DGS-OpenGL"), samples);
     try {
         w.mainloop(argc, argv);
     } catch (const char* msg) {

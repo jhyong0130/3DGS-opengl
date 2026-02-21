@@ -1,7 +1,3 @@
-//
-// Created by Briac on 28/08/2025.
-//
-
 #ifndef COMMONTYPES_H
 #define COMMONTYPES_H
 
@@ -58,11 +54,6 @@ struct Uniforms {
     vec2* restrict eigen_vecs;
     vec4* restrict predicted_colors;
 
-    f16vec4* restrict dLoss_dconic_opacity;
-    f16vec4* restrict dLoss_dpredicted_colors;
-
-    uint64_t ground_truth_image;
-    uint64_t accumulated_image_fwd;
 };
 
 #endif //COMMONTYPES_H

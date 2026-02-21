@@ -10,6 +10,29 @@ __device__ float d_sigmoid(float x) {
     return 1.0f / (1.0f + expf(-x));
 }
 
+__device__ float d_choose_scale_neus(float depth_mm, float3 n_cam, float3 p_cam_mm)
+{
+    const float D = 1500.0f;
+    const float S_near = 1000000.0f;
+    const float S_far = 100000.0f;
+    const float alpha = 1.0f;
+
+    float x = fminf(fmaxf(depth_mm / D, 0.0f), 1.0f);
+    float s_dist = S_near - (S_near - S_far) * (x * x);
+
+    float p_len = sqrtf(p_cam_mm.x * p_cam_mm.x + p_cam_mm.y * p_cam_mm.y + p_cam_mm.z * p_cam_mm.z);
+    float n_len = sqrtf(n_cam.x * n_cam.x + n_cam.y * n_cam.y + n_cam.z * n_cam.z);
+    float cos_nv = 0.05f;
+    if (p_len > 1e-8f && n_len > 1e-8f) {
+        float dot_nv = fabsf(-(n_cam.x * p_cam_mm.x + n_cam.y * p_cam_mm.y + n_cam.z * p_cam_mm.z) / (n_len * p_len));
+        cos_nv = fmaxf(dot_nv, 0.05f);
+    }
+
+    float orient = fminf(fmaxf(1.0f + alpha / cos_nv, 1.0f), 6.0f);
+    float s = s_dist * orient;
+    return fminf(fmaxf(s, S_far), S_near);
+}
+
 __global__ void rgbdUnprojectKernel(
     RgbdLoadParams params,
     float* positions,
@@ -18,6 +41,7 @@ __global__ void rgbdUnprojectKernel(
     float* opacities,
     float* tangents,
     float* depth_cam_points,
+    float* scale_neus,
     int* valid_count)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -74,7 +98,7 @@ __global__ void rgbdUnprojectKernel(
     float3 vx = make_float3(px.x - p.x, px.y - p.y, px.z - p.z);
     float3 vy = make_float3(py.x - p.x, py.y - p.y, py.z - p.z);
 
-    // Cross product vx Å~ vy
+    // Cross product vx ?~ vy
     float3 n;
     n.x = vx.y * vy.z - vx.z * vy.y;
     n.y = vx.z * vy.x - vx.x * vy.z;
@@ -156,6 +180,9 @@ __global__ void rgbdUnprojectKernel(
     depth_cam_points[out_idx * 3 + 0] = x_d;
     depth_cam_points[out_idx * 3 + 1] = y_d;
     depth_cam_points[out_idx * 3 + 2] = z_d;
+
+    // NeuS sharpness parameter (matches CPU choose_scale_neus)
+    scale_neus[out_idx] = d_choose_scale_neus(depth_mm, n, p);
 }
 
 int launchRgbdUnprojectKernel(
@@ -178,6 +205,7 @@ int launchRgbdUnprojectKernel(
         outputs.opacities,
         outputs.tangents,
         outputs.depth_cam_points,
+        outputs.scale_neus,
         outputs.valid_count
     );
 
