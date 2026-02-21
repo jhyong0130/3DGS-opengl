@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20.0)
 
-project(CVTSPLAT LANGUAGES C CXX CUDA)
+project(3DGS_OpenGL LANGUAGES C CXX CUDA)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -15,9 +15,6 @@ set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -allow-unsupported-compiler")
 set(ZLIB_USE_STATIC_LIBS "ON")
 
 find_package(glfw3 CONFIG REQUIRED)
-find_package(assimp REQUIRED)
-find_package(CGAL CONFIG REQUIRED)
-find_package(Boost REQUIRED)
 find_package(OpenCV REQUIRED)
 include_directories(${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES} ${OpenCV_INCLUDE_DIRS})
 
@@ -59,7 +56,6 @@ set(RenderingBase_files
 		src/RenderingBase/GLShaderLoader.cpp
 		src/RenderingBase/Camera.cpp
         src/RenderingBase/Texture2D.cpp
-		src/RenderingBase/MeshLoader.cpp
 		src/RenderingBase/CudaBuffer.cuh
 		src/RenderingBase/CudaTimer.cu
 		src/RenderingBase/CudaBuffer.cu
@@ -74,7 +70,7 @@ set(RenderingBase_files
 set_source_files_properties(src/Window.cu PROPERTIES LANGUAGE CXX)
 
 # Main program
-add_executable(CVTSPLAT
+add_executable(3DGS_OpenGL
 	src/Main.cpp
 	src/Window.cu
 	${Utils_files} ${RenderingBase_files}
@@ -86,21 +82,11 @@ add_executable(CVTSPLAT
 		src/DataLoader.h
 		src/Sort.cu
 		src/Sort.cuh
-		src/Backward.cu
-		src/Backward.cuh
-		src/adam_cuda.cu
-		src/adam_cuda.cuh
-		src/CVTupdate.cu
-		src/CVTupdate.cuh
-		src/KNN_cuda.cu
-		src/KNN_cuda.cuh
 		src/RgbdLoadCuda.cu
 		src/RgbdLoadCuda.cuh
-		src/knn_cu/lbvh_kernels.cu
-		src/knn_cu/query_knn_kernels.cu
 )
-target_link_libraries(CVTSPLAT glfw assimp::assimp CGAL::CGAL Boost::boost ${OpenCV_LIBS})
-target_compile_options(CVTSPLAT PUBLIC $<$<COMPILE_LANGUAGE:CUDA>:
+target_link_libraries(3DGS_OpenGL glfw ${OpenCV_LIBS})
+target_compile_options(3DGS_OpenGL PUBLIC $<$<COMPILE_LANGUAGE:CUDA>:
 		--use_fast_math
 		--ptxas-options=-v
 		--resource-usage
@@ -112,13 +98,13 @@ target_compile_options(CVTSPLAT PUBLIC $<$<COMPILE_LANGUAGE:CUDA>:
 
 #set_source_files_properties(src/Main.cu PROPERTIES COMPILE_FLAGS "-G -g")
 
-set_target_properties(CVTSPLAT PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+set_target_properties(3DGS_OpenGL PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
 
 # IMGUI test program
 add_executable(IMGUI_test src/imgui/main.cpp src/imgui/imgui_demo.cpp ${Utils_files})
 target_link_libraries(IMGUI_test glfw ${CMAKE_DL_LIBS})
 
-INSTALL(TARGETS CVTSPLAT IMGUI_test DESTINATION ${MyProject_SOURCE_DIR}/install)
+INSTALL(TARGETS 3DGS_OpenGL IMGUI_test DESTINATION ${MyProject_SOURCE_DIR}/install)
 
 message("CUDA_LIBRARIES is  \"${CUDA_LIBRARIES}\"")

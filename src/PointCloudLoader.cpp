@@ -1,7 +1,3 @@
-﻿//
-// Created by Briac on 27/08/2025.
-//
-
 #include "PointCloudLoader.h"
 
 #include <vector>
@@ -257,119 +253,6 @@ float h_SDF_Sphere(glm::vec4 point, float R) {
     return sqrt(point.x * point.x + point.y * point.y + point.z * point.z) - R;
 }
 
-void PointCloudLoader::load(GaussianCloud& dst, const std::string &path, bool useCudaGLInterop) {
-    dst.freeRawCudaBuffers();
-    dst.clearCpuData();
-    dst.initialized = false;
-
-    std::cout << "Loading point cloud: " << path << " ..." << std::endl;
-
-    print_ply_header(path.c_str());
-    std::cout << "End of header."<< std::endl;
-
-    miniply::PLYReader reader(path.c_str());
-    if (!reader.valid()) {
-        std::cout << "Couldn't read " <<path << std::endl;
-        return;
-    }
-
-    assert(reader.has_element());
-
-    const miniply::PLYElement *elem = reader.element();
-
-    if (!reader.load_element()) {
-        std::cout <<"Element" <<elem->name <<" failed to load." <<std::endl;
-        return;
-    }
-
-    assert(elem->name == "vertex");
-
-    dst.num_gaussians = (int)elem->count;
-
-    const uint pos_idx[3] = {
-            elem->find_property("x"),
-            elem->find_property("y"),
-            elem->find_property("z")
-    };
-    const uint rot_idx[4] = {
-            elem->find_property("rot_0"),
-            elem->find_property("rot_1"),
-            elem->find_property("rot_2"),
-            elem->find_property("rot_3")
-    };
-    const uint scale_idx[3] = {
-            elem->find_property("scale_0"),
-            elem->find_property("scale_1"),
-            elem->find_property("scale_2")
-    };
-    const uint opacity_idx[1] = {
-            elem->find_property("opacity")
-    };
-
-    dst.positions_cpu = std::vector<glm::vec4>(dst.num_gaussians);
-    for(int i=0; i<dst.num_gaussians; i++){
-        dst.positions_cpu[i].w = 1.0f;
-    }
-    reader.extract_properties_with_stride(pos_idx, 3, miniply::PLYPropertyType::Float, dst.positions_cpu.data(), 4*sizeof(float));
-    dst.positions.storeData(dst.positions_cpu.data(), dst.num_gaussians, 4*sizeof(float), 0, useCudaGLInterop, false, true);
-
-    //dst.scales_cpu = std::vector<glm::vec4>(dst.num_gaussians);
-    //reader.extract_properties_with_stride(scale_idx, 3, miniply::PLYPropertyType::Float, dst.scales_cpu.data(), 4*sizeof(float));
-    //for(int i=0; i<dst.num_gaussians; i++){
-    //    dst.scales_cpu[i] = exp(dst.scales_cpu[i]); // apply exponential activation
-    //    dst.scales_cpu[i].w = 0.0f;
-    //}
-    //dst.scales.storeData(dst.scales_cpu.data(), dst.num_gaussians, 4*sizeof(float), 0, useCudaGLInterop, false, true);
-
-    //dst.rotations_cpu = std::vector<glm::vec4>(dst.num_gaussians);
-    //reader.extract_properties(rot_idx, 4, miniply::PLYPropertyType::Float, dst.rotations_cpu.data());
-    //dst.rotations.storeData(dst.rotations_cpu.data(), dst.num_gaussians, 4*sizeof(float), 0, useCudaGLInterop, false, true);
-
-    dst.opacities_cpu = std::vector<float>(dst.num_gaussians);
-    reader.extract_properties(opacity_idx, 1, miniply::PLYPropertyType::Float, dst.opacities_cpu.data());
-    for(int i=0; i<dst.num_gaussians; i++){
-        dst.opacities_cpu[i] = sigmoid(dst.opacities_cpu[i]); // apply sigmoid activation
-    }
-    dst.opacities.storeData(dst.opacities_cpu.data(), dst.num_gaussians, 1*sizeof(float), 0, useCudaGLInterop, false, true);
-
-    uint sh_idx[48];
-    for(int i=0; i<48; i++){
-        const std::string prop_name = i < 3 ? "f_dc_" + std::to_string(i) : "f_rest_" + std::to_string(i-3);
-        sh_idx[i] = elem->find_property(prop_name.c_str());
-    }
-
-    for(int i=0; i<3; i++) {
-        float* sh_coeffs = new float[dst.num_gaussians * 16];
-        uint channel_idx[16];
-        for(int j=0; j<16; j++){
-//            channel_idx[j] = sh_idx[j*3+i];
-            if(j == 0){
-                channel_idx[0] = sh_idx[i];
-            }else{
-                channel_idx[j] = sh_idx[3+i*15+j-1];
-            }
-        }
-        reader.extract_properties(channel_idx, 16, miniply::PLYPropertyType::Float, sh_coeffs);
-        dst.sh_coeffs[i].storeData(sh_coeffs, dst.num_gaussians, 16*sizeof(float), 0, useCudaGLInterop, false, true);
-        delete[] sh_coeffs;
-    }
-
-    dst.visible_gaussians_counter.storeData(nullptr, 1, sizeof(int), 0, useCudaGLInterop, false, true);
-    dst.gaussians_depths.storeData(nullptr, dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, true, true);
-    dst.gaussians_indices.storeData(nullptr, dst.num_gaussians, sizeof(int), 0, useCudaGLInterop, true, true);
-    dst.sorted_depths.storeData(nullptr, dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, true, true);
-    dst.sorted_gaussian_indices.storeData(nullptr, dst.num_gaussians, sizeof(int), 0, useCudaGLInterop, true, true);
-
-    dst.bounding_boxes.storeData(nullptr, dst.num_gaussians, 4*sizeof(float), 0, useCudaGLInterop, true, true);
-    dst.conic_opacity.storeData(nullptr, dst.num_gaussians, 4*sizeof(float), 0, useCudaGLInterop, true, true);
-    dst.eigen_vecs.storeData(nullptr, dst.num_gaussians, 2*sizeof(float), 0, useCudaGLInterop, true, true);
-    dst.predicted_colors.storeData(nullptr, dst.num_gaussians, 4*sizeof(float), 0, useCudaGLInterop, true, true);
-
-    dst.initialized = true;
-
-    std::cout << "Finished loading point cloud." << std::endl;
-}
-
 
 void PointCloudLoader::loadRdm(GaussianCloud& dst, int nb_pts, bool useCudaGLInterop) {
     dst.freeRawCudaBuffers();
@@ -452,6 +335,12 @@ void PointCloudLoader::loadRdm(GaussianCloud& dst, int nb_pts, bool useCudaGLInt
     }*/
     //dst.sdf.storeData(nullptr, dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, true, true);
 
+    dst.normals_cpu = std::vector<glm::vec4>(dst.num_gaussians, glm::vec4(0.0f, 0.0f, 1.0f, 0.0f));
+    dst.normals.storeData(dst.normals_cpu.data(), dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, false, true);
+
+    dst.scale_neus_cpu = std::vector<float>(dst.num_gaussians, 500000.0f);
+    dst.scale_neus.storeData(dst.scale_neus_cpu.data(), dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, false, true);
+
     dst.visible_gaussians_counter.storeData(nullptr, 1, sizeof(int), 0, useCudaGLInterop, false, true);
     dst.gaussians_depths.storeData(nullptr, dst.num_gaussians, sizeof(float), 0, useCudaGLInterop, true, true);
     dst.gaussians_indices.storeData(nullptr, dst.num_gaussians, sizeof(int), 0, useCudaGLInterop, true, true);
@@ -462,43 +351,6 @@ void PointCloudLoader::loadRdm(GaussianCloud& dst, int nb_pts, bool useCudaGLInt
     dst.conic_opacity.storeData(nullptr, dst.num_gaussians, 4*sizeof(float), 0, useCudaGLInterop, true, true);
     dst.eigen_vecs.storeData(nullptr, dst.num_gaussians, 2*sizeof(float), 0, useCudaGLInterop, true, true);
     dst.predicted_colors.storeData(nullptr, dst.num_gaussians, 4*sizeof(float), 0, useCudaGLInterop, true, true);
-
-    dst.dLoss_dpredicted_colors.storeData(nullptr, dst.num_gaussians, 4 * sizeof(__half), 0, useCudaGLInterop, true, true);
-    dst.dLoss_dconic_opacity.storeData(nullptr, dst.num_gaussians, 4 * sizeof(__half), 0, useCudaGLInterop, true, true);
-
-    cudaMalloc((void**)&dst.threshold_sdf, 2 * sizeof(float));
-    cudaMalloc((void**)&dst.d_flags, dst.num_gaussians * sizeof(unsigned char));
-    cudaMalloc((void**)&dst.d_adjacencies, (dst.KVal + dst.KVal_d) * dst.num_gaussians * sizeof(uint));
-    cudaMalloc((void**)&dst.d_adjacencies_delaunay, dst.KVal_d * dst.num_gaussians * sizeof(uint));
-
-    cudaMalloc((void**)&dst.pts_f3, 3 * dst.num_gaussians * sizeof(float));
-    cudaMalloc((void**)&dst.morton_codes, dst.num_gaussians * sizeof(uint64_t));
-    cudaMalloc((void**)&dst.sorted_indices, dst.num_gaussians * sizeof(uint32_t));
-    cudaMalloc((void**)&dst.indices_out, dst.KVal * dst.num_gaussians * sizeof(uint32_t));
-    cudaMalloc((void**)&dst.distances_out, dst.KVal * dst.num_gaussians * sizeof(float));
-    cudaMalloc((void**)&dst.n_neighbors_out, dst.num_gaussians * sizeof(uint32_t));
-
-    for (int k = 0; k < 3; k++) {
-        float* tmp;
-        float* d_m_tmp;
-        float* d_v_tmp;
-        cudaMalloc((void**)&tmp, 16 * dst.num_gaussians * sizeof(float));
-        cudaMalloc((void**)&d_m_tmp, 16 * dst.num_gaussians * sizeof(float));
-        cudaMalloc((void**)&d_v_tmp, 16 * dst.num_gaussians * sizeof(float));
-        cudaMemset(d_m_tmp, 0, 16 * dst.num_gaussians * sizeof(float));
-        cudaMemset(d_v_tmp, 0, 16 * dst.num_gaussians * sizeof(float));
-        dst.dLoss_sh_coeffs.push_back(tmp);
-        dst.d_m_sh_coeff.push_back(d_m_tmp);
-        dst.d_v_sh_coeff.push_back(d_v_tmp);
-    }
-
-    cudaMalloc((void**)&dst.dLoss_SDF, dst.num_gaussians * sizeof(float));
-    cudaMalloc((void**)&dst.d_m_sdf, dst.num_gaussians * sizeof(float));
-    cudaMalloc((void**)&dst.d_v_sdf, dst.num_gaussians * sizeof(float));
-    cudaMemset(dst.d_m_sdf, 0, dst.num_gaussians * sizeof(float));
-    cudaMemset(dst.d_v_sdf, 0, dst.num_gaussians * sizeof(float));
-
-    dst.fork_pts.resize(dst.num_gaussians);
 
     dst.initialized = true;
 
@@ -741,43 +593,6 @@ void PointCloudLoader::loadRgbd(GaussianCloud& dst, const std::string& depth_pat
     dst.eigen_vecs.storeData(nullptr, dst.num_gaussians, 2 * sizeof(float), 0, useCudaGLInterop, true, true);
     dst.predicted_colors.storeData(nullptr, dst.num_gaussians, 4 * sizeof(float), 0, useCudaGLInterop, true, true);
 
-    dst.dLoss_dpredicted_colors.storeData(nullptr, dst.num_gaussians, 4 * sizeof(__half), 0, useCudaGLInterop, true, true);
-    dst.dLoss_dconic_opacity.storeData(nullptr, dst.num_gaussians, 4 * sizeof(__half), 0, useCudaGLInterop, true, true);
-
-    cudaMalloc((void**)&dst.threshold_sdf, 2 * sizeof(float));
-    cudaMalloc((void**)&dst.d_flags, dst.num_gaussians * sizeof(unsigned char));
-    cudaMalloc((void**)&dst.d_adjacencies, (dst.KVal + dst.KVal_d) * dst.num_gaussians * sizeof(uint));
-    cudaMalloc((void**)&dst.d_adjacencies_delaunay, dst.KVal_d * dst.num_gaussians * sizeof(uint));
-
-    cudaMalloc((void**)&dst.pts_f3, 3 * dst.num_gaussians * sizeof(float));
-    cudaMalloc((void**)&dst.morton_codes, dst.num_gaussians * sizeof(uint64_t));
-    cudaMalloc((void**)&dst.sorted_indices, dst.num_gaussians * sizeof(uint32_t));
-    cudaMalloc((void**)&dst.indices_out, dst.KVal * dst.num_gaussians * sizeof(uint32_t));
-    cudaMalloc((void**)&dst.distances_out, dst.KVal * dst.num_gaussians * sizeof(float));
-    cudaMalloc((void**)&dst.n_neighbors_out, dst.num_gaussians * sizeof(uint32_t));
-
-    for (int k = 0; k < 3; k++) {
-        float* tmp;
-        float* d_m_tmp;
-        float* d_v_tmp;
-        cudaMalloc((void**)&tmp, 16 * dst.num_gaussians * sizeof(float));
-        cudaMalloc((void**)&d_m_tmp, 16 * dst.num_gaussians * sizeof(float));
-        cudaMalloc((void**)&d_v_tmp, 16 * dst.num_gaussians * sizeof(float));
-        cudaMemset(d_m_tmp, 0, 16 * dst.num_gaussians * sizeof(float));
-        cudaMemset(d_v_tmp, 0, 16 * dst.num_gaussians * sizeof(float));
-        dst.dLoss_sh_coeffs.push_back(tmp);
-        dst.d_m_sh_coeff.push_back(d_m_tmp);
-        dst.d_v_sh_coeff.push_back(d_v_tmp);
-    }
-
-    cudaMalloc((void**)&dst.dLoss_SDF, dst.num_gaussians * sizeof(float));
-    cudaMalloc((void**)&dst.d_m_sdf, dst.num_gaussians * sizeof(float));
-    cudaMalloc((void**)&dst.d_v_sdf, dst.num_gaussians * sizeof(float));
-    cudaMemset(dst.d_m_sdf, 0, dst.num_gaussians * sizeof(float));
-    cudaMemset(dst.d_v_sdf, 0, dst.num_gaussians * sizeof(float));
-
-    dst.fork_pts.resize(dst.num_gaussians);
-
     dst.initialized = true;
 
     std::cout << "Finished loading RGBD point cloud." << std::endl;
@@ -897,45 +712,8 @@ void PointCloudLoader::merge(GaussianCloud& dst,
         dst.eigen_vecs.storeData(nullptr, total, 2 * sizeof(float), 0, useCudaGLInterop, true, true);
         dst.predicted_colors.storeData(nullptr, total, 4 * sizeof(float), 0, useCudaGLInterop, true, true);
 
-        dst.dLoss_dpredicted_colors.storeData(nullptr, total, 4 * sizeof(__half), 0, useCudaGLInterop, true, true);
-        dst.dLoss_dconic_opacity.storeData(nullptr, total, 4 * sizeof(__half), 0, useCudaGLInterop, true, true);
-
         // Free and reallocate raw CUDA buffers
         dst.freeRawCudaBuffers();
-
-        cudaMalloc((void**)&dst.threshold_sdf, 2 * sizeof(float));
-        cudaMalloc((void**)&dst.d_flags, total * sizeof(unsigned char));
-        cudaMalloc((void**)&dst.d_adjacencies, (dst.KVal + dst.KVal_d) * total * sizeof(uint));
-        cudaMalloc((void**)&dst.d_adjacencies_delaunay, dst.KVal_d * total * sizeof(uint));
-
-        cudaMalloc((void**)&dst.pts_f3, 3 * total * sizeof(float));
-        cudaMalloc((void**)&dst.morton_codes, total * sizeof(uint64_t));
-        cudaMalloc((void**)&dst.sorted_indices, total * sizeof(uint32_t));
-        cudaMalloc((void**)&dst.indices_out, dst.KVal * total * sizeof(uint32_t));
-        cudaMalloc((void**)&dst.distances_out, dst.KVal * total * sizeof(float));
-        cudaMalloc((void**)&dst.n_neighbors_out, total * sizeof(uint32_t));
-
-        for (int k = 0; k < 3; k++) {
-            float* tmp;
-            float* d_m_tmp;
-            float* d_v_tmp;
-            cudaMalloc((void**)&tmp, 16 * total * sizeof(float));
-            cudaMalloc((void**)&d_m_tmp, 16 * total * sizeof(float));
-            cudaMalloc((void**)&d_v_tmp, 16 * total * sizeof(float));
-            cudaMemset(d_m_tmp, 0, 16 * total * sizeof(float));
-            cudaMemset(d_v_tmp, 0, 16 * total * sizeof(float));
-            dst.dLoss_sh_coeffs.push_back(tmp);
-            dst.d_m_sh_coeff.push_back(d_m_tmp);
-            dst.d_v_sh_coeff.push_back(d_v_tmp);
-        }
-
-        cudaMalloc((void**)&dst.dLoss_SDF, total * sizeof(float));
-        cudaMalloc((void**)&dst.d_m_sdf, total * sizeof(float));
-        cudaMalloc((void**)&dst.d_v_sdf, total * sizeof(float));
-        cudaMemset(dst.d_m_sdf, 0, total * sizeof(float));
-        cudaMemset(dst.d_v_sdf, 0, total * sizeof(float));
-
-        dst.fork_pts.resize(total);
     }
 
     dst.initialized = true;
@@ -1111,6 +889,7 @@ void PointCloudLoader::loadRgbdGpuInternal(GaussianCloud& dst,
         if (s_outputs.opacities)    cudaFree(s_outputs.opacities);
         if (s_outputs.tangents)     cudaFree(s_outputs.tangents);
         if (s_outputs.depth_cam_points) cudaFree(s_outputs.depth_cam_points);
+        if (s_outputs.scale_neus)   cudaFree(s_outputs.scale_neus);
         if (s_outputs.valid_count)  cudaFree(s_outputs.valid_count);
 
         cudaMalloc((void**)&s_d_depth, total_pixels * sizeof(uint16_t));
@@ -1120,6 +899,7 @@ void PointCloudLoader::loadRgbdGpuInternal(GaussianCloud& dst,
         cudaMalloc((void**)&s_outputs.opacities, total_pixels * sizeof(float));
         cudaMalloc((void**)&s_outputs.tangents, total_pixels * 3 * sizeof(float));
         cudaMalloc((void**)&s_outputs.depth_cam_points, total_pixels * 3 * sizeof(float));
+        cudaMalloc((void**)&s_outputs.scale_neus, total_pixels * sizeof(float));
         cudaMalloc((void**)&s_outputs.valid_count, sizeof(int));
         s_alloc_pixels = total_pixels;
     }
@@ -1249,6 +1029,11 @@ void PointCloudLoader::loadRgbdGpuInternal(GaussianCloud& dst,
     dst.sdf_cpu.assign(num_valid, 0.0f);
     dst.sdf.storeOrUpdateData(dst.sdf_cpu.data(), num_valid, sizeof(float), 0, useCudaGLInterop, false, true);
 
+    // NeuS sharpness (computed per-point in the unproject kernel)
+    dst.scale_neus_cpu.resize(num_valid);
+    cudaMemcpy(dst.scale_neus_cpu.data(), s_outputs.scale_neus, num_valid * sizeof(float), cudaMemcpyDeviceToHost);
+    dst.scale_neus.storeOrUpdateData(dst.scale_neus_cpu.data(), num_valid, sizeof(float), 0, useCudaGLInterop, false, true);
+
     // ---- Derived / scratch buffers: only allocate when size changes ----
     if (!sameSize) {
         dst.visible_gaussians_counter.storeData(nullptr, 1, sizeof(int), 0, useCudaGLInterop, false, true);
@@ -1261,43 +1046,6 @@ void PointCloudLoader::loadRgbdGpuInternal(GaussianCloud& dst,
         dst.conic_opacity.storeData(nullptr, num_valid, 4 * sizeof(float), 0, useCudaGLInterop, true, true);
         dst.eigen_vecs.storeData(nullptr, num_valid, 2 * sizeof(float), 0, useCudaGLInterop, true, true);
         dst.predicted_colors.storeData(nullptr, num_valid, 4 * sizeof(float), 0, useCudaGLInterop, true, true);
-
-        dst.dLoss_dpredicted_colors.storeData(nullptr, num_valid, 4 * sizeof(__half), 0, useCudaGLInterop, true, true);
-        dst.dLoss_dconic_opacity.storeData(nullptr, num_valid, 4 * sizeof(__half), 0, useCudaGLInterop, true, true);
-
-        cudaMalloc((void**)&dst.threshold_sdf, 2 * sizeof(float));
-        cudaMalloc((void**)&dst.d_flags, num_valid * sizeof(unsigned char));
-        cudaMalloc((void**)&dst.d_adjacencies, (dst.KVal + dst.KVal_d) * num_valid * sizeof(uint));
-        cudaMalloc((void**)&dst.d_adjacencies_delaunay, dst.KVal_d * num_valid * sizeof(uint));
-
-        cudaMalloc((void**)&dst.pts_f3, 3 * num_valid * sizeof(float));
-        cudaMalloc((void**)&dst.morton_codes, num_valid * sizeof(uint64_t));
-        cudaMalloc((void**)&dst.sorted_indices, num_valid * sizeof(uint32_t));
-        cudaMalloc((void**)&dst.indices_out, dst.KVal * num_valid * sizeof(uint32_t));
-        cudaMalloc((void**)&dst.distances_out, dst.KVal * num_valid * sizeof(float));
-        cudaMalloc((void**)&dst.n_neighbors_out, num_valid * sizeof(uint32_t));
-
-        for (int k = 0; k < 3; k++) {
-            float* tmp;
-            float* d_m_tmp;
-            float* d_v_tmp;
-            cudaMalloc((void**)&tmp, 16 * num_valid * sizeof(float));
-            cudaMalloc((void**)&d_m_tmp, 16 * num_valid * sizeof(float));
-            cudaMalloc((void**)&d_v_tmp, 16 * num_valid * sizeof(float));
-            cudaMemset(d_m_tmp, 0, 16 * num_valid * sizeof(float));
-            cudaMemset(d_v_tmp, 0, 16 * num_valid * sizeof(float));
-            dst.dLoss_sh_coeffs.push_back(tmp);
-            dst.d_m_sh_coeff.push_back(d_m_tmp);
-            dst.d_v_sh_coeff.push_back(d_v_tmp);
-        }
-
-        cudaMalloc((void**)&dst.dLoss_SDF, num_valid * sizeof(float));
-        cudaMalloc((void**)&dst.d_m_sdf, num_valid * sizeof(float));
-        cudaMalloc((void**)&dst.d_v_sdf, num_valid * sizeof(float));
-        cudaMemset(dst.d_m_sdf, 0, num_valid * sizeof(float));
-        cudaMemset(dst.d_v_sdf, 0, num_valid * sizeof(float));
-
-        dst.fork_pts.resize(num_valid);
     }
 
     dst.initialized = true;
