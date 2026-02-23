@@ -3,7 +3,11 @@
   "version-string": "1.0.0",
   "dependencies": [
     "glfw3",
-    "opencv"
+    {
+      "name": "opencv4",
+      "default-features": false,
+      "features": ["core", "imgcodecs", "imgproc", "highgui"]
+    }
   ],
   "builtin-baseline": "c59b04f668d20c7dd83f478835e8266a3cc51270"
 }
