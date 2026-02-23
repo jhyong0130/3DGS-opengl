@@ -83,8 +83,8 @@ void showGLTextureInOpenCV(GLuint textureID, int width, int height) {
     //cv::flip(image, image, 0);
 
     // Show the image
-    cv::imshow("OpenGL Texture", image);
-    cv::waitKey(1);
+    //cv::imshow("OpenGL Texture", image);
+    //cv::waitKey(1);
 }
 
 void GaussianCloud::prepareRender(Camera &camera, bool GT) {

@@ -41,7 +41,7 @@ void GLShaderLoader::loadHeaders(const std::vector<std::string> &headerPaths,
 
     for(std::string path : headerPaths){
         std::filesystem::path p = std::filesystem::path(path);
-        path = std::filesystem::absolute(p).string();
+        path = std::filesystem::canonical(p).string();
         std::replace(path.begin(), path.end(), '\\', '/');
 
         this->headers_paths.push_back(path);

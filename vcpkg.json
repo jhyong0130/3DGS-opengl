@@ -6,7 +6,7 @@
     {
       "name": "opencv4",
       "default-features": false,
-      "features": ["core", "imgcodecs", "imgproc", "highgui"]
+      "features": [ "png", "jpeg" ]
     }
   ],
   "builtin-baseline": "c59b04f668d20c7dd83f478835e8266a3cc51270"
