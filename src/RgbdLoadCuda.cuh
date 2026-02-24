@@ -44,6 +44,7 @@ struct RgbdLoadOutputs {
     float* opacities;    // 1 float per point
     float* tangents;     // 3 floats per point (tx, ty, tz) in camera space
     float* depth_cam_points; // 3 floats per point (x, y, z) in depth camera coords
+    float* scale_neus;   // 1 float per point (NeuS sharpness parameter)
     int* valid_count;    // atomic counter for number of valid points (device pointer)
 };
 

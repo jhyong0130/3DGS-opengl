@@ -324,7 +324,7 @@ void Window::mainloop(int argc, char** argv) {
     // Rotation matrix from depth to RGB camera
     glm::mat3 R_Cam2 = glm::mat3(
         0.999992f, -0.00382051f, 0.00112496f,
-        0.0039048f, 0.9961f, -0.0881453,
+        0.0039048f, 0.9961f, -0.0881453f,
         -0.000783808f, 0.088149f, 0.996107f
     );
 
