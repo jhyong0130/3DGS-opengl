@@ -15,6 +15,7 @@ Library dependencies (glfw3, OpenCV) are declared in `vcpkg.json` and installed 
 2. Visual Studio will detect `CMakeSettings.json`, run vcpkg to install dependencies, and configure the project automatically.
 3. Select the **x64-Debug** configuration from the toolbar dropdown.
 4. Set **3DGS_OpenGL.exe** as the startup item (dropdown next to the green play button).
+5. Copy the `resources/` folder into the build output directory (e.g. `out/build/x64-Debug/`). The shaders are loaded at runtime relative to the working directory and are not copied automatically by the build.
 
 The application opens an interactive window. Use the ImGui panels to load PLY files or RGBD image sequences.
 
